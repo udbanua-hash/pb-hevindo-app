@@ -10,7 +10,8 @@ import { Trophy, X, Calendar, MapPin, Youtube, Check } from 'lucide-react';
 interface TournamentFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (tournament: Tournament) => void;
+  onSubmit?: (tournament: Tournament) => void;
+  onSave?: (tournament: Tournament) => void;
   initialData?: Tournament | null;
 }
 
@@ -35,6 +36,7 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
+  onSave,
   initialData,
 }) => {
   const [formData, setFormData] = useState<Partial<Tournament>>(() => {
@@ -116,7 +118,11 @@ export const TournamentFormModal: React.FC<TournamentFormModalProps> = ({
       liveStreamTikTokUrl: formData.liveStreamTikTokUrl || '',
     };
 
-    onSubmit(tournamentToSave);
+    if (onSubmit) {
+      onSubmit(tournamentToSave);
+    } else if (onSave) {
+      onSave(tournamentToSave);
+    }
     onClose();
   };
 

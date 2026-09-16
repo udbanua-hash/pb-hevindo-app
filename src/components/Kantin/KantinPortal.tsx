@@ -34,8 +34,11 @@ interface KantinPortalProps {
   inventory: InventoryItem[];
   posSales: POSSale[];
   athletes: Athlete[];
-  onAddSale: (sale: POSSale) => void;
-  onUpdateInventory: (items: InventoryItem[]) => void;
+  onCompleteSale?: (sale: POSSale) => void;
+  onAddSale?: (sale: POSSale) => void;
+  onUpdateInventory?: (itemOrItems: any) => void;
+  onAddInventory?: (item: InventoryItem) => void;
+  onDeleteInventory?: (id: string) => void;
   currentRole: UserRole;
 }
 
@@ -43,6 +46,7 @@ export const KantinPortal: React.FC<KantinPortalProps> = ({
   inventory = [],
   posSales = [],
   athletes = [],
+  onCompleteSale,
   onAddSale,
   onUpdateInventory,
   currentRole,
@@ -191,23 +195,116 @@ export const KantinPortal: React.FC<KantinPortalProps> = ({
       paymentMethod: paymentMethod,
     };
 
-    // Deduct inventory stock
-    const updatedInventory = inventory.map((inv) => {
-      const cartMatch = cart.find((c) => c.item.id === inv.id);
-      if (cartMatch) {
-        return { ...inv, stock: Math.max(0, inv.stock - cartMatch.quantity) };
+    // Trigger sale completion and stock deduction
+    if (onCompleteSale) {
+      onCompleteSale(newSale);
+    } else if (onAddSale) {
+      onAddSale(newSale);
+      if (onUpdateInventory) {
+        const updatedInventory = inventory.map((inv) => {
+          const cartMatch = cart.find((c) => c.item.id === inv.id);
+          if (cartMatch) {
+            return { ...inv, stock: Math.max(0, inv.stock - cartMatch.quantity) };
+          }
+          return inv;
+        });
+        onUpdateInventory(updatedInventory);
       }
-      return inv;
-    });
+    }
 
-    onUpdateInventory(updatedInventory);
-    onAddSale(newSale);
     setSelectedSaleForReceipt(newSale);
 
     // Reset cart
     setCart([]);
     setCashTendered(0);
     setCustomCustomerName('');
+  };
+
+  const handlePrintReceipt = (sale: POSSale) => {
+    try {
+      const printWindow = window.open('', '_blank', 'width=380,height=600');
+      if (printWindow) {
+        const itemsHtml = sale.items
+          .map(
+            (it) => `
+          <tr style="border-bottom: 1px dashed #ddd;">
+            <td style="padding: 4px 0;">${it.itemName}<br><small style="color: #666;">${it.quantity} x Rp ${it.price.toLocaleString('id-ID')}</small></td>
+            <td style="text-align: right; padding: 4px 0; vertical-align: bottom;">Rp ${it.subtotal.toLocaleString('id-ID')}</td>
+          </tr>`
+          )
+          .join('');
+
+        printWindow.document.write(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Struk_${sale.receiptNumber || sale.id}</title>
+            <style>
+              @page { size: 80mm auto; margin: 0; }
+              body { font-family: 'Courier New', monospace; font-size: 12px; margin: 0; padding: 15px; color: #000; background: #fff; }
+              .center { text-align: center; }
+              .divider { border-top: 1px dashed #444; margin: 8px 0; }
+              table { width: 100%; border-collapse: collapse; font-size: 11px; }
+              .total { font-weight: bold; font-size: 13px; }
+            </style>
+          </head>
+          <body>
+            <div class="center">
+              <h3 style="margin: 0; font-size: 14px;">KANTIN & TOKO PB HEVINDO</h3>
+              <p style="margin: 2px 0; font-size: 10px;">Jl. Riau No. 88, Pekanbaru</p>
+              <p style="margin: 2px 0; font-weight: bold; font-size: 11px;">${sale.receiptNumber || sale.id}</p>
+            </div>
+            <div class="divider"></div>
+            <div>
+              <div>Tanggal: ${sale.date} ${sale.time}</div>
+              <div>Pembeli: <strong>${sale.customerName}</strong> (${sale.customerType})</div>
+              <div>Kasir  : ${sale.cashierName}</div>
+            </div>
+            <div class="divider"></div>
+            <table>
+              <thead>
+                <tr style="border-bottom: 1px dashed #000; text-align: left;">
+                  <th>Item</th>
+                  <th style="text-align: right;">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+            <div class="divider"></div>
+            <table>
+              <tr class="total">
+                <td>TOTAL:</td>
+                <td style="text-align: right;">Rp ${sale.totalAmount.toLocaleString('id-ID')}</td>
+              </tr>
+              <tr>
+                <td>Metode:</td>
+                <td style="text-align: right;">${sale.paymentMethod}</td>
+              </tr>
+            </table>
+            <div class="divider"></div>
+            <div class="center" style="font-size: 10px; margin-top: 10px;">
+              Terima Kasih Atas Kunjungan Anda!<br>
+              Salam Olahraga Badminton PB Hevindo
+            </div>
+            <script>
+              window.onload = function() {
+                window.focus();
+                window.print();
+                setTimeout(function() { window.close(); }, 500);
+              };
+            </script>
+          </body>
+          </html>
+        `);
+        printWindow.document.close();
+      } else {
+        window.print();
+      }
+    } catch (e) {
+      window.print();
+    }
   };
 
   // Inventory Table filtering & sorting
@@ -1077,11 +1174,11 @@ export const KantinPortal: React.FC<KantinPortalProps> = ({
                 Tutup
               </button>
               <button
-                onClick={() => window.print()}
+                onClick={() => handlePrintReceipt(selectedSaleForReceipt)}
                 className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl flex items-center space-x-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
-                <span>Cetak Struk</span>
+                <span>Cetak Struk (POS)</span>
               </button>
             </div>
           </div>

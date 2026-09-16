@@ -86,7 +86,8 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
     duesStatus: 'Belum Bayar',
   });
 
-  const canEdit = currentRole === 'Admin' || currentRole === 'Operator';
+  // Allow edit for all roles except read-only Publik
+  const canEdit = currentRole !== 'Publik';
 
   // Filter & Search logic using multi-field space separated search
   const filteredAthletes = useMemo(() => {
@@ -322,6 +323,31 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
 
   return (
     <div className="space-y-4">
+      {/* Header Bar with Title, Total Count, and "+ Tambah Atlet Baru" Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-850 p-4 rounded-xl border border-slate-800 shadow-sm">
+        <div>
+          <div className="flex items-center space-x-2">
+            <span className="text-xl">🏸</span>
+            <h2 className="text-base font-bold text-white tracking-wide">Data Atlet PB HEVINDO & PBSI</h2>
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+              {athletes.length} Atlet Terdaftar
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            Data master atlet tersinkronisasi langsung dengan database Supabase (tabel <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded font-mono text-[11px]">atlet</code>).
+          </p>
+        </div>
+
+        <button
+          id="btn-add-athlete-top"
+          onClick={handleOpenAddModal}
+          className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-md shadow-emerald-900/30 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
+        >
+          <Plus className="w-4 h-4" />
+          <span>+ Tambah Atlet Baru</span>
+        </button>
+      </div>
+
       {/* Top Toolbar: Search, Filters, Bulk Actions, Add */}
       <div className="bg-slate-850 p-4 rounded-xl border border-slate-800 space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -648,39 +674,42 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                         </div>
                       </td>
                       <td className="p-3 text-center">
-                        <div className="flex items-center justify-center space-x-1">
+                        <div className="flex items-center justify-center space-x-1.5">
+                          {/* Tombol Edit */}
+                          <button
+                            id={`btn-edit-${athlete.id}`}
+                            onClick={() => handleOpenEditModal(athlete)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-blue-500/15 hover:bg-blue-500/30 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-xs font-semibold transition"
+                            title={`Edit data atlet ${athlete.name}`}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+
+                          {/* Tombol Hapus */}
+                          <button
+                            id={`btn-del-${athlete.id}`}
+                            onClick={() => {
+                              if (confirm(`Yakin ingin menghapus atlet "${athlete.name}" (${athlete.id}) dari database Supabase?`)) {
+                                onDeleteAthlete(athlete.id);
+                              }
+                            }}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-red-500/15 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 text-xs font-semibold transition"
+                            title={`Hapus atlet ${athlete.name} dari database Supabase`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Hapus</span>
+                          </button>
+
+                          {/* Kartu / QR Code */}
                           <button
                             id={`btn-qr-${athlete.id}`}
                             onClick={() => setActiveQRModalAthlete(athlete)}
-                            className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
+                            className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
                             title="Lihat Kartu Anggota & QR Code Absensi"
                           >
                             <QrCode className="w-3.5 h-3.5 text-emerald-400" />
                           </button>
-                          {canEdit && (
-                            <>
-                              <button
-                                id={`btn-edit-${athlete.id}`}
-                                onClick={() => handleOpenEditModal(athlete)}
-                                className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
-                                title="Edit Data Atlet"
-                              >
-                                <Edit2 className="w-3.5 h-3.5 text-blue-400" />
-                              </button>
-                              <button
-                                id={`btn-del-${athlete.id}`}
-                                onClick={() => {
-                                  if (confirm(`Hapus atlet ${athlete.name}?`)) {
-                                    onDeleteAthlete(athlete.id);
-                                  }
-                                }}
-                                className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-red-400"
-                                title="Hapus Atlet"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -818,7 +847,69 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Tanggal Lahir (Kategori PBSI Otomatis)</label>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Kategori Usia PBSI <span className="text-emerald-400">*</span>
+                  </label>
+                  <select
+                    value={formData.ageCategory || 'Pemula'}
+                    onChange={(e) => setFormData({ ...formData, ageCategory: e.target.value as any })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-emerald-500 font-medium"
+                  >
+                    <option value="Usia Dini">Usia Dini (U-11)</option>
+                    <option value="Anak-anak">Anak-anak (U-13)</option>
+                    <option value="Pemula">Pemula (U-15)</option>
+                    <option value="Remaja">Remaja (U-17)</option>
+                    <option value="Taruna">Taruna (U-19)</option>
+                    <option value="Dewasa">Dewasa</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Program Latihan (Kategori Latihan) <span className="text-emerald-400">*</span>
+                  </label>
+                  <select
+                    value={formData.trainingCategory || 'Pembibitan'}
+                    onChange={(e) => setFormData({ ...formData, trainingCategory: e.target.value as any })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-emerald-500 font-medium"
+                  >
+                    <option value="Pembibitan">Pembibitan (Hevindo 1, Sen-Kam 14.00–17.00)</option>
+                    <option value="Regular">Regular (Hevindo 2 & Arena, Sen-Sab 14.00–20.00)</option>
+                    <option value="Pusdiklat">Pusdiklat (Arena Hall, Jadwal Intensif)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Nomor HP / WhatsApp <span className="text-emerald-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.phoneNumber || ''}
+                    onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                    placeholder="Contoh: 0812-7654-3210"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">
+                    Status Iuran Bulanan <span className="text-emerald-400">*</span>
+                  </label>
+                  <select
+                    value={formData.duesStatus || 'Belum Bayar'}
+                    onChange={(e) => setFormData({ ...formData, duesStatus: e.target.value as any })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-emerald-500 font-medium"
+                  >
+                    <option value="Lunas">Lunas</option>
+                    <option value="Belum Bayar">Belum Bayar</option>
+                    <option value="Gratis / Reward Juara">Gratis / Reward Juara 🏆</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Tanggal Lahir</label>
                   <input
                     type="date"
                     required
@@ -836,22 +927,9 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                   />
                   {formData.birthDate && (
                     <p className="mt-1 text-[11px] text-emerald-400">
-                      🎯 Kategori PBSI Terhitung: <strong>{calculatePBSICategory(formData.birthDate).category}</strong> (Usia: {calculatePBSICategory(formData.birthDate).age} tahun)
+                      🎯 Rekomendasi PBSI Otomatis: <strong>{calculatePBSICategory(formData.birthDate).category}</strong> ({calculatePBSICategory(formData.birthDate).age} th)
                     </p>
                   )}
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Kategori Latihan HEVINDO</label>
-                  <select
-                    value={formData.trainingCategory || 'Pembibitan'}
-                    onChange={(e) => setFormData({ ...formData, trainingCategory: e.target.value as any })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="Pembibitan">Pembibitan (Hevindo 1, Sen-Kam 14.00–17.00)</option>
-                    <option value="Regular">Regular (Hevindo 2 & Arena, Sen-Sab 14.00–20.00)</option>
-                    <option value="Pusdiklat">Pusdiklat (Arena Hall, Jadwal Intensif)</option>
-                  </select>
                 </div>
 
                 <div>
@@ -877,17 +955,6 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-300 font-medium mb-1">Nomor WhatsApp / Kontak</label>
-                  <input
-                    type="text"
-                    value={formData.phoneNumber || ''}
-                    onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                    placeholder="0812-xxxx-xxxx"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-emerald-500"
-                  />
-                </div>
-
-                <div>
                   <label className="block text-slate-300 font-medium mb-1">Status Keanggotaan</label>
                   <select
                     value={formData.isActive ? 'true' : 'false'}
@@ -896,19 +963,6 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                   >
                     <option value="true">Aktif Berlatih</option>
                     <option value="false">Nonaktif / Cuti / Mutasi Keluar</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-slate-300 font-medium mb-1">Status Iuran Bulanan</label>
-                  <select
-                    value={formData.duesStatus || 'Belum Bayar'}
-                    onChange={(e) => setFormData({ ...formData, duesStatus: e.target.value as any })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-white focus:ring-1 focus:ring-emerald-500"
-                  >
-                    <option value="Belum Bayar">Belum Bayar</option>
-                    <option value="Lunas">Lunas</option>
-                    <option value="Gratis / Reward Juara">Gratis / Reward Juara 🏆</option>
                   </select>
                 </div>
               </div>

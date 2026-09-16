@@ -1199,12 +1199,25 @@ export const TournamentPortal: React.FC<TournamentPortalProps> = ({
           setIsTournamentModalOpen(false);
           setTournamentToEdit(null);
         }}
+        onSubmit={(data) => {
+          if (tournamentToEdit && onUpdateTournament) {
+            onUpdateTournament(data);
+          } else if (onAddTournament) {
+            onAddTournament(data);
+          }
+          setSelectedTournamentId(data.id);
+          setActiveTab('tournaments_list');
+          setIsTournamentModalOpen(false);
+          setTournamentToEdit(null);
+        }}
         onSave={(data) => {
           if (tournamentToEdit && onUpdateTournament) {
             onUpdateTournament(data);
           } else if (onAddTournament) {
             onAddTournament(data);
           }
+          setSelectedTournamentId(data.id);
+          setActiveTab('tournaments_list');
           setIsTournamentModalOpen(false);
           setTournamentToEdit(null);
         }}

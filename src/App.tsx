@@ -54,6 +54,17 @@ import { MonthlyDuesTab } from './components/Transactions/MonthlyDuesTab';
 import { AttendanceTab } from './components/Attendance/AttendanceTab';
 import { ReportsTab } from './components/Reports/ReportsTab';
 import { AuditLogsTab } from './components/Security/AuditLogsTab';
+import {
+  fetchAthletesFromSupabase,
+  saveAthleteToSupabase,
+  deleteAthleteFromSupabase,
+  fetchKantinTransaksiFromSupabase,
+  saveKantinTransaksiToSupabase,
+  fetchSewaLapanganFromSupabase,
+  saveSewaLapanganToSupabase,
+  deleteSewaLapanganFromSupabase,
+  isSupabaseConfigured,
+} from './services/supabase';
 
 // Helper to determine active portal from URL hash or query params
 const getPortalFromUrl = (): PortalType => {
@@ -171,26 +182,115 @@ export default function App() {
     setNotifications((prev) => [newNotif, ...prev]);
   };
 
-  // Master Data Handlers: Athletes
-  const handleAddAthlete = (athlete: Athlete) => {
-    setAthletes((prev) => [athlete, ...prev]);
-    logAction('TAMBAH_ATLET', 'Master Atlet', `Menambahkan atlet baru ${athlete.name} (${athlete.id})`);
-    addNotification('Atlet Baru Terdaftar', `${athlete.name} berhasil didaftarkan di kategori ${athlete.trainingCategory}.`, 'info');
+  // Supabase Cloud State & Sync Engine
+  const [supabaseStatus, setSupabaseStatus] = useState<{
+    configured: boolean;
+    syncing: boolean;
+    lastSynced?: string;
+    message?: string;
+  }>({
+    configured: isSupabaseConfigured(),
+    syncing: false,
+  });
+
+  const syncWithSupabase = async () => {
+    if (!isSupabaseConfigured()) return;
+    setSupabaseStatus((prev) => ({ ...prev, syncing: true, message: 'Menyinkronkan dengan Supabase...' }));
+    try {
+      // 1. Fetch data atlet dari tabel 'atlet'
+      const dbAthletes = await fetchAthletesFromSupabase();
+      if (dbAthletes.length > 0) {
+        setAthletes(dbAthletes);
+      }
+
+      // 2. Fetch data transaksi kantin dari tabel 'kantin_transaksi'
+      const dbSales = await fetchKantinTransaksiFromSupabase();
+      if (dbSales.length > 0) {
+        setPosSales(dbSales);
+      }
+
+      // 3. Fetch data sewa lapangan dari tabel 'sewa_lapangan'
+      const dbRentals = await fetchSewaLapanganFromSupabase();
+      if (dbRentals.length > 0) {
+        setCourtRentals(dbRentals);
+      }
+
+      const syncTime = new Date().toLocaleTimeString('id-ID');
+      setSupabaseStatus({
+        configured: true,
+        syncing: false,
+        lastSynced: syncTime,
+        message: 'Tersinkronisasi dengan Supabase (atlet, kantin_transaksi, sewa_lapangan).',
+      });
+      addNotification(
+        'Supabase Terhubung',
+        `Data atlet, transaksi kantin, dan sewa lapangan berhasil disinkronkan (${syncTime}).`,
+        'success'
+      );
+    } catch (err: any) {
+      setSupabaseStatus((prev) => ({
+        ...prev,
+        syncing: false,
+        message: `Gagal sinkronisasi: ${err?.message || err}`,
+      }));
+    }
   };
 
-  const handleUpdateAthlete = (athlete: Athlete) => {
+  useEffect(() => {
+    if (isSupabaseConfigured()) {
+      syncWithSupabase();
+    }
+  }, []);
+
+  // Master Data Handlers: Athletes (Tersambung ke Supabase 'atlet')
+  const handleAddAthlete = async (athlete: Athlete) => {
+    setAthletes((prev) => [athlete, ...prev]);
+    if (isSupabaseConfigured()) {
+      const res = await saveAthleteToSupabase(athlete);
+      if (res.success) {
+        addNotification('Tersimpan di Supabase', `Data atlet ${athlete.name} berhasil disimpan ke database cloud.`, 'info');
+      } else {
+        addNotification('Peringatan Supabase', `Tersimpan secara lokal. Gagal ke cloud: ${res.error || 'Periksa tabel'}`, 'warning');
+      }
+    } else {
+      addNotification('Atlet Baru Terdaftar', `${athlete.name} berhasil didaftarkan di kategori ${athlete.trainingCategory}.`, 'info');
+    }
+    logAction('TAMBAH_ATLET', 'Master Atlet', `Menambahkan atlet baru ${athlete.name} (${athlete.id})`);
+  };
+
+  const handleUpdateAthlete = async (athlete: Athlete) => {
     setAthletes((prev) => prev.map((a) => (a.id === athlete.id ? athlete : a)));
+    if (isSupabaseConfigured()) {
+      const res = await saveAthleteToSupabase(athlete);
+      if (res.success) {
+        addNotification('Supabase Terupdate', `Perubahan profil ${athlete.name} tersimpan ke cloud.`, 'info');
+      } else {
+        addNotification('Peringatan Supabase', `Perubahan tersimpan lokal. Gagal ke cloud: ${res.error || 'Periksa tabel'}`, 'warning');
+      }
+    }
     logAction('UPDATE_ATLET', 'Master Atlet', `Memperbarui profil atlet ${athlete.name} (${athlete.id})`);
   };
 
-  const handleDeleteAthlete = (id: string) => {
+  const handleDeleteAthlete = async (id: string) => {
     const target = athletes.find((a) => a.id === id);
     setAthletes((prev) => prev.filter((a) => a.id !== id));
+    if (isSupabaseConfigured()) {
+      const res = await deleteAthleteFromSupabase(id);
+      if (res.success) {
+        addNotification('Dihapus dari Supabase', `Atlet ${target?.name || id} telah dihapus dari database cloud.`, 'info');
+      } else {
+        addNotification('Peringatan Supabase', `Dihapus secara lokal. Gagal di cloud: ${res.error || 'Periksa izin'}`, 'warning');
+      }
+    }
     logAction('HAPUS_ATLET', 'Master Atlet', `Menghapus atlet ${target?.name || id}`);
   };
 
-  const handleBulkDeleteAthletes = (ids: string[]) => {
+  const handleBulkDeleteAthletes = async (ids: string[]) => {
     setAthletes((prev) => prev.filter((a) => !ids.includes(a.id)));
+    if (isSupabaseConfigured()) {
+      await Promise.all(ids.map((id) => deleteAthleteFromSupabase(id)));
+      addNotification('Hapus Massal Supabase', `${ids.length} atlet dihapus dari database cloud.`, 'info');
+    }
     logAction('HAPUS_MASSAL_ATLET', 'Master Atlet', `Menghapus massal ${ids.length} atlet`);
   };
 
@@ -259,6 +359,10 @@ export default function App() {
 
   const handleCompleteSale = (sale: POSSale) => {
     setPosSales((prev) => [sale, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      saveKantinTransaksiToSupabase(sale).catch(console.error);
+    }
 
     // Deduct inventory quantities
     setInventory((prev) =>
@@ -356,16 +460,25 @@ export default function App() {
 
   const handleAddRental = (rental: CourtRental) => {
     setCourtRentals((prev) => [rental, ...prev]);
+    if (isSupabaseConfigured()) {
+      saveSewaLapanganToSupabase(rental).catch(console.error);
+    }
     logAction('BOOKING_SEWA_LAPANGAN', 'Sewa Lapangan', `Booking sewa ${rental.courtName} (${rental.buildingName}) oleh ${rental.renterName}`);
     addNotification('Booking Sewa Lapangan', `Penyewaan ${rental.courtName} atas nama ${rental.renterName} berhasil didaftarkan.`, 'success');
   };
 
   const handleUpdateRental = (rental: CourtRental) => {
     setCourtRentals((prev) => prev.map((r) => (r.id === rental.id ? rental : r)));
+    if (isSupabaseConfigured()) {
+      saveSewaLapanganToSupabase(rental).catch(console.error);
+    }
   };
 
   const handleDeleteRental = (id: string) => {
     setCourtRentals((prev) => prev.filter((r) => r.id !== id));
+    if (isSupabaseConfigured()) {
+      deleteSewaLapanganFromSupabase(id).catch(console.error);
+    }
   };
 
   // Tournament Matches & Event Handlers
@@ -428,6 +541,8 @@ export default function App() {
         onMarkAllAsRead={() => setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })))}
         auditLogs={auditLogs}
         onOpenAuditLogs={() => changePortal('audit')}
+        supabaseStatus={supabaseStatus}
+        onSyncSupabase={syncWithSupabase}
       />
 
       {/* Login & Role Selection Modal */}

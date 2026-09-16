@@ -23,6 +23,8 @@ import {
   Copy,
   Check,
   Sparkles,
+  Database,
+  RefreshCw,
 } from 'lucide-react';
 
 export interface NavbarProps {
@@ -36,6 +38,13 @@ export interface NavbarProps {
   onMarkAllAsRead?: () => void;
   auditLogs?: AuditLog[];
   onOpenAuditLogs?: () => void;
+  supabaseStatus?: {
+    configured: boolean;
+    syncing: boolean;
+    lastSynced?: string;
+    message?: string;
+  };
+  onSyncSupabase?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -49,6 +58,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onMarkAllAsRead,
   auditLogs = [],
   onOpenAuditLogs,
+  supabaseStatus,
+  onSyncSupabase,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [currentTime, setCurrentTime] = useState('');
@@ -234,6 +245,38 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* RIGHT: Clock, Audit, Notifications, Role Switcher */}
           <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Supabase Cloud Connection Status */}
+            {supabaseStatus && (
+              <div
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border ${
+                  supabaseStatus.configured
+                    ? 'bg-emerald-950/40 text-emerald-300 border-emerald-500/30'
+                    : 'bg-slate-800/80 text-slate-400 border-slate-700/60'
+                }`}
+                title={
+                  supabaseStatus.configured
+                    ? `Supabase DB Cloud Terhubung (atlet, kantin_transaksi, sewa_lapangan). Terakhir disinkron: ${supabaseStatus.lastSynced || 'Baru saja'}`
+                    : 'Supabase belum terhubung. Konfigurasi VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di environment.'
+                }
+              >
+                <Database className={`w-3.5 h-3.5 ${supabaseStatus.configured ? 'text-emerald-400' : 'text-slate-500'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${supabaseStatus.configured ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                <span className="font-semibold">
+                  {supabaseStatus.configured ? 'Supabase (On)' : 'Supabase (Off)'}
+                </span>
+                {supabaseStatus.configured && onSyncSupabase && (
+                  <button
+                    onClick={onSyncSupabase}
+                    disabled={supabaseStatus.syncing}
+                    className="ml-1 p-0.5 hover:text-white transition"
+                    title="Sinkronkan data dengan Supabase sekarang"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${supabaseStatus.syncing ? 'animate-spin text-emerald-400' : ''}`} />
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Live Clock */}
             <div className="hidden xl:flex items-center space-x-1.5 px-2.5 py-1 bg-slate-800/80 rounded-lg text-xs font-mono text-slate-300 border border-slate-700/60">
               <Clock className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
