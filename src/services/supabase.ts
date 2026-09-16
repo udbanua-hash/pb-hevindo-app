@@ -34,7 +34,7 @@ export const supabase: SupabaseClient = isSupabaseConfigured()
  * Adaptive upsert helper that removes columns if Postgres rejects them
  * because they don't exist in the user's specific table schema.
  */
-async function adaptiveUpsert(
+export async function adaptiveUpsert(
   tableName: string,
   payload: Record<string, any>,
   matchCol: string = 'id',
@@ -99,7 +99,7 @@ async function adaptiveUpsert(
     }
 
     // Check if error is about unknown column
-    // e.g. column "name" of relation "atlet" does not exist
+    // e.g. column "name" of relation "athletes" does not exist
     const match = error.message.match(/column "([^"]+)" of relation/i);
     if (match && match[1] && match[1] in currentPayload) {
       delete currentPayload[match[1]];
@@ -115,7 +115,7 @@ async function adaptiveUpsert(
 }
 
 // ==========================================
-// 1. MODUL DATA ATLET (Tabel: 'atlet')
+// 1. MODUL DATA ATLET (Tabel: 'athletes')
 // ==========================================
 
 export function mapSupabaseRowToAthlete(row: any): Athlete {
@@ -123,21 +123,25 @@ export function mapSupabaseRowToAthlete(row: any): Athlete {
     id: String(row.id || row.id_atlet || `ATL-${Date.now()}`),
     idPb: String(row.id_pb || row.idPb || row.id_pbsi || row.no_pbsi || '-'),
     nik: String(row.nik || '-'),
-    name: String(row.nama || row.name || row.athlete_name || 'Tanpa Nama'),
-    gender: (row.jenis_kelamin || row.gender || 'Putra') as any,
-    birthPlace: String(row.tempat_lahir || row.birth_place || 'Pekanbaru'),
-    birthDate: String(row.tanggal_lahir || row.birth_date || '2014-01-01'),
-    ageCategory: (row.kategori_usia || row.age_category || 'Pemula') as any,
-    trainingCategory: (row.kategori_latihan || row.training_category || 'Pembibitan') as any,
-    clubId: String(row.klub_id || row.club_id || 'CLB-001'),
-    clubName: String(row.nama_klub || row.club_name || 'PB Hevindo'),
-    parentName: String(row.nama_orang_tua || row.parent_name || '-'),
-    phoneNumber: String(row.no_hp || row.telepon || row.phone_number || '-'),
-    address: String(row.alamat || row.address || '-'),
+    name: String(row.name || row.nama || row.athlete_name || 'Tanpa Nama'),
+    gender: (row.gender === 'PUTRA' || row.jenis_kelamin === 'Putra' || row.gender === 'Putra') ? 'Putra' : 'Putri',
+    birthPlace: String(row.birth_place || row.tempat_lahir || 'Pekanbaru'),
+    birthDate: String(row.birth_date || row.tanggal_lahir || '2014-01-01'),
+    ageCategory: (row.age_category || row.kategori_usia || 'Pemula') as any,
+    trainingCategory: (row.training_category || row.kategori_latihan || 'Pembibitan') as any,
+    clubId: String(row.club_id || row.klub_id || 'CLB-001'),
+    clubName: String(row.club_name || row.nama_klub || 'PB Hevindo'),
+    parentName: String(row.parent_name || row.nama_orang_tua || '-'),
+    phoneNumber: String(row.phone_number || row.no_hp || row.telepon || '-'),
+    address: String(row.address || row.alamat || '-'),
     isActive: row.status_aktif !== undefined ? Boolean(row.status_aktif) : (row.is_active !== undefined ? Boolean(row.is_active) : true),
-    duesStatus: (row.status_iuran || row.dues_status || 'Belum Bayar') as any,
-    joinDate: String(row.tanggal_gabung || row.join_date || '2025-01-01'),
-    qrCodeToken: String(row.qr_token || row.qrCodeToken || `HEV-QR-${row.id || Date.now()}`),
+    duesStatus: (row.dues_status === 'LUNAS' || row.status_iuran === 'Lunas'
+      ? 'Lunas'
+      : row.dues_status === 'GRATIS_REWARD' || row.status_iuran === 'Gratis'
+      ? 'Gratis'
+      : 'Belum Bayar') as any,
+    joinDate: String(row.created_at ? row.created_at.split('T')[0] : (row.tanggal_gabung || row.join_date || '2025-01-01')),
+    qrCodeToken: String(row.qr_code_token || row.qr_token || row.qrCodeToken || `HEV-QR-${row.id || Date.now()}`),
     achievements: Array.isArray(row.achievements)
       ? row.achievements
       : typeof row.prestasi === 'string'
@@ -152,19 +156,19 @@ export function mapSupabaseRowToAthlete(row: any): Athlete {
 }
 
 /**
- * Mengambil data secara async dari tabel Supabase 'atlet'
- * (await supabase.from('atlet').select('*'))
+ * Mengambil data secara async dari tabel Supabase 'athletes'
+ * (await supabase.from('athletes').select('*'))
  */
 export async function fetchAtlet(): Promise<{ data: Athlete[]; error: any }> {
   try {
     const { data, error } = await supabase
-      .from('atlet')
+      .from('athletes')
       .select('*')
       .order('id', { ascending: true });
 
     if (error) {
       // Retry without ordering if 'id' column ordering is not supported
-      const retry = await supabase.from('atlet').select('*');
+      const retry = await supabase.from('athletes').select('*');
       if (!retry.error && retry.data) {
         return { data: retry.data.map(mapSupabaseRowToAthlete), error: null };
       }
@@ -189,7 +193,7 @@ export async function fetchAthletesFromSupabase(): Promise<Athlete[]> {
 
 /**
  * Menyimpan data atlet baru ke Supabase
- * (await supabase.from('atlet').insert([...]))
+ * (await supabase.from('athletes').insert([...]))
  */
 export async function insertAthleteToSupabase(athlete: Athlete): Promise<{ success: boolean; data?: any; error?: any }> {
   const basePayload: Record<string, any> = {
@@ -198,8 +202,8 @@ export async function insertAthleteToSupabase(athlete: Athlete): Promise<{ succe
     id_pb: athlete.idPb,
     nama: athlete.name,
     name: athlete.name,
-    jenis_kelamin: athlete.gender,
-    gender: athlete.gender,
+    jenis_kelamin: athlete.gender === 'Putra' ? 'PUTRA' : 'PUTRI',
+    gender: athlete.gender === 'Putra' ? 'PUTRA' : 'PUTRI',
     tempat_lahir: athlete.birthPlace,
     birth_place: athlete.birthPlace,
     tanggal_lahir: athlete.birthDate,
@@ -219,24 +223,27 @@ export async function insertAthleteToSupabase(athlete: Athlete): Promise<{ succe
     phone_number: athlete.phoneNumber,
     alamat: athlete.address,
     address: athlete.address,
-    status_iuran: athlete.duesStatus,
-    dues_status: athlete.duesStatus,
+    status_iuran: athlete.duesStatus === 'Lunas' ? 'LUNAS' : athlete.duesStatus === 'Gratis' ? 'GRATIS_REWARD' : 'BELUM_BAYAR',
+    dues_status: athlete.duesStatus === 'Lunas' ? 'LUNAS' : athlete.duesStatus === 'Gratis' ? 'GRATIS_REWARD' : 'BELUM_BAYAR',
     status_aktif: athlete.isActive,
     is_active: athlete.isActive,
     tanggal_gabung: athlete.joinDate,
     join_date: athlete.joinDate,
+    qr_code_token: athlete.qrCodeToken || `HEV-QR-${Date.now()}`,
+    achievements: athlete.achievements || [],
+    transfer_history: athlete.transferHistory || [],
   };
 
   let curPayload = { ...basePayload };
   let retries = 0;
   while (retries < 15) {
-    const { data, error } = await supabase.from('atlet').insert([curPayload]).select();
+    const { data, error } = await supabase.from('athletes').insert([curPayload]).select();
     if (!error) {
       return { success: true, data };
     }
 
-    // Jika kolom tidak ada di tabel atlet, hapus kolom tersebut dari payload lalu retry
-    const match = error.message.match(/column "([^"]+)" of relation "atlet" does not exist/i);
+    // Jika kolom tidak ada di tabel, hapus kolom tersebut dari payload lalu retry
+    const match = error.message.match(/column "([^"]+)" of relation "athletes" does not exist/i);
     if (match && match[1] && match[1] in curPayload) {
       delete curPayload[match[1]];
       retries++;
@@ -251,7 +258,7 @@ export async function insertAthleteToSupabase(athlete: Athlete): Promise<{ succe
     }
 
     // Coba fallback adaptiveUpsert jika ada konflik constraint
-    const fallback = await adaptiveUpsert('atlet', curPayload, 'id');
+    const fallback = await adaptiveUpsert('athletes', curPayload, 'id');
     if (!fallback.error) {
       return { success: true, data: fallback.data };
     }
@@ -264,7 +271,7 @@ export async function insertAthleteToSupabase(athlete: Athlete): Promise<{ succe
 
 /**
  * Memperbarui data atlet yang sudah ada di Supabase
- * (await supabase.from('atlet').update(...).eq('id', id))
+ * (await supabase.from('athletes').update(...).eq('id', id))
  */
 export async function updateAthleteToSupabase(athlete: Athlete): Promise<{ success: boolean; data?: any; error?: any }> {
   const basePayload: Record<string, any> = {
@@ -272,8 +279,8 @@ export async function updateAthleteToSupabase(athlete: Athlete): Promise<{ succe
     id_pb: athlete.idPb,
     nama: athlete.name,
     name: athlete.name,
-    jenis_kelamin: athlete.gender,
-    gender: athlete.gender,
+    jenis_kelamin: athlete.gender === 'Putra' ? 'PUTRA' : 'PUTRI',
+    gender: athlete.gender === 'Putra' ? 'PUTRA' : 'PUTRI',
     tempat_lahir: athlete.birthPlace,
     birth_place: athlete.birthPlace,
     tanggal_lahir: athlete.birthDate,
@@ -293,21 +300,23 @@ export async function updateAthleteToSupabase(athlete: Athlete): Promise<{ succe
     phone_number: athlete.phoneNumber,
     alamat: athlete.address,
     address: athlete.address,
-    status_iuran: athlete.duesStatus,
-    dues_status: athlete.duesStatus,
+    status_iuran: athlete.duesStatus === 'Lunas' ? 'LUNAS' : athlete.duesStatus === 'Gratis' ? 'GRATIS_REWARD' : 'BELUM_BAYAR',
+    dues_status: athlete.duesStatus === 'Lunas' ? 'LUNAS' : athlete.duesStatus === 'Gratis' ? 'GRATIS_REWARD' : 'BELUM_BAYAR',
     status_aktif: athlete.isActive,
     is_active: athlete.isActive,
+    achievements: athlete.achievements || [],
+    transfer_history: athlete.transferHistory || [],
   };
 
   let curPayload = { ...basePayload };
   let retries = 0;
   while (retries < 15) {
-    let { data, error } = await supabase.from('atlet').update(curPayload).eq('id', athlete.id).select();
+    let { data, error } = await supabase.from('athletes').update(curPayload).eq('id', athlete.id).select();
     if (!error) {
       return { success: true, data };
     }
 
-    const match = error.message.match(/column "([^"]+)" of relation "atlet" does not exist/i);
+    const match = error.message.match(/column "([^"]+)" of relation "athletes" does not exist/i);
     if (match && match[1] && match[1] in curPayload) {
       delete curPayload[match[1]];
       retries++;
@@ -315,7 +324,7 @@ export async function updateAthleteToSupabase(athlete: Athlete): Promise<{ succe
     }
 
     // Coba fallback dengan match id_atlet
-    const retryIdAtlet = await supabase.from('atlet').update(curPayload).eq('id_atlet', athlete.id).select();
+    const retryIdAtlet = await supabase.from('athletes').update(curPayload).eq('id_atlet', athlete.id).select();
     if (!retryIdAtlet.error) {
       return { success: true, data: retryIdAtlet.data };
     }
@@ -336,14 +345,14 @@ export async function saveAthleteToSupabase(athlete: Athlete): Promise<{ success
 
 /**
  * Menghapus data atlet dari Supabase
- * (await supabase.from('atlet').delete().eq('id', id))
+ * (await supabase.from('athletes').delete().eq('id', id))
  */
 export async function deleteAthleteFromSupabase(athleteId: string): Promise<{ success: boolean; error?: any }> {
   try {
-    let { error } = await supabase.from('atlet').delete().eq('id', athleteId);
+    let { error } = await supabase.from('athletes').delete().eq('id', athleteId);
     if (error) {
       // Fallback coba kolom 'id_atlet'
-      const fallback = await supabase.from('atlet').delete().eq('id_atlet', athleteId);
+      const fallback = await supabase.from('athletes').delete().eq('id_atlet', athleteId);
       if (!fallback.error) return { success: true };
       return { success: false, error: error.message };
     }
@@ -354,7 +363,7 @@ export async function deleteAthleteFromSupabase(athleteId: string): Promise<{ su
 }
 
 // ==========================================
-// 2. MODUL KANTIN & POS (Tabel: 'kantin_transaksi')
+// 2. MODUL KANTIN & POS (Tabel: 'pos_sales')
 // ==========================================
 
 export async function fetchKantinTransaksiFromSupabase(): Promise<POSSale[]> {
@@ -362,7 +371,7 @@ export async function fetchKantinTransaksiFromSupabase(): Promise<POSSale[]> {
 
   try {
     const { data, error } = await supabase
-      .from('kantin_transaksi')
+      .from('pos_sales')
       .select('*')
       .order('id', { ascending: false });
 
@@ -375,16 +384,20 @@ export async function fetchKantinTransaksiFromSupabase(): Promise<POSSale[]> {
 
     return data.map((row: any): POSSale => ({
       id: String(row.id || row.sale_id || `POS-${Date.now()}`),
-      receiptNumber: String(row.nomor_struk || row.receipt_number || row.invoice_no || `INV-${Date.now()}`),
-      invoiceNo: String(row.invoice_no || row.nomor_struk || row.receipt_number || ''),
-      date: String(row.tanggal || row.date || new Date().toISOString().split('T')[0]),
-      time: String(row.jam || row.time || '12:00 WIB'),
-      customerName: String(row.nama_pembeli || row.customer_name || 'Pelanggan'),
-      customerType: String(row.tipe_pembeli || row.customer_type || 'Umum'),
-      totalAmount: Number(row.total_harga || row.total_amount || row.total || 0),
-      cashierName: String(row.nama_kasir || row.cashier_name || 'Petugas Kasir'),
-      paymentMethod: String(row.metode_pembayaran || row.payment_method || 'Tunai'),
-      items: Array.isArray(row.items)
+      receiptNumber: String(row.invoice_number || row.nomor_struk || row.receipt_number || `INV-${Date.now()}`),
+      invoiceNo: String(row.invoice_number || row.nomor_struk || row.receipt_number || ''),
+      date: String(row.created_at ? row.created_at.split('T')[0] : (row.tanggal || row.date || new Date().toISOString().split('T')[0])),
+      time: String(row.created_at ? row.created_at.split('T')[1].slice(0, 5) : (row.jam || row.time || '12:00 WIB')),
+      customerName: String(row.customer_name || row.nama_pembeli || 'Pelanggan'),
+      customerType: String(row.customer_type || row.tipe_pembeli || 'Umum'),
+      totalAmount: Number(row.total_amount || row.total_harga || row.total || 0),
+      cashierName: String(row.cashier_name || row.nama_kasir || 'Petugas Kasir'),
+      paymentMethod: String(row.payment_method || row.metode_pembayaran || 'CASH'),
+      items: Array.isArray(row.sales_data)
+        ? row.sales_data
+        : typeof row.sales_data === 'string'
+        ? JSON.parse(row.sales_data)
+        : Array.isArray(row.items)
         ? row.items
         : typeof row.items === 'string'
         ? JSON.parse(row.items)
@@ -404,6 +417,7 @@ export async function saveKantinTransaksiToSupabase(sale: POSSale): Promise<{ su
   try {
     const payload: Record<string, any> = {
       id: sale.id,
+      invoice_number: sale.receiptNumber || sale.invoiceNo || `INV-${Date.now()}`,
       nomor_struk: sale.receiptNumber,
       receipt_number: sale.receiptNumber,
       invoice_no: sale.receiptNumber,
@@ -420,12 +434,13 @@ export async function saveKantinTransaksiToSupabase(sale: POSSale): Promise<{ su
       total: sale.totalAmount,
       nama_kasir: sale.cashierName,
       cashier_name: sale.cashierName,
-      metode_pembayaran: sale.paymentMethod,
-      payment_method: sale.paymentMethod,
-      items: sale.items,
+      metode_pembayaran: sale.paymentMethod || 'CASH',
+      payment_method: sale.paymentMethod || 'CASH',
+      sales_data: sale.items || [],
+      items: sale.items || [],
     };
 
-    const { error } = await adaptiveUpsert('kantin_transaksi', payload, 'id');
+    const { error } = await adaptiveUpsert('pos_sales', payload, 'id');
     if (error) {
       console.warn('Gagal menyimpan transaksi kantin ke Supabase:', error.message);
       return { success: false, error: error.message };
@@ -437,7 +452,7 @@ export async function saveKantinTransaksiToSupabase(sale: POSSale): Promise<{ su
 }
 
 // ==========================================
-// 3. MODUL SEWA LAPANGAN (Tabel: 'sewa_lapangan')
+// 3. MODUL SEWA LAPANGAN (Tabel: 'court_rentals')
 // ==========================================
 
 export async function fetchSewaLapanganFromSupabase(): Promise<CourtRental[]> {
@@ -445,7 +460,7 @@ export async function fetchSewaLapanganFromSupabase(): Promise<CourtRental[]> {
 
   try {
     const { data, error } = await supabase
-      .from('sewa_lapangan')
+      .from('court_rentals')
       .select('*')
       .order('id', { ascending: false });
 
@@ -458,24 +473,24 @@ export async function fetchSewaLapanganFromSupabase(): Promise<CourtRental[]> {
 
     return data.map((row: any): CourtRental => ({
       id: String(row.id || row.rental_id || `RENT-${Date.now()}`),
-      bookingCode: String(row.kode_booking || row.booking_code || `HEV-${Date.now()}`),
-      renterName: String(row.nama_penyewa || row.renter_name || 'Penyewa'),
-      renterPhone: String(row.telepon || row.no_hp || row.renter_phone || ''),
-      rentalType: (row.jenis_sewa || row.rental_type || 'Harian') as any,
-      buildingId: String(row.gedung_id || row.building_id || 'BLD-01'),
-      buildingName: String(row.nama_gedung || row.building_name || 'GOR PB Hevindo'),
-      courtId: String(row.lapangan_id || row.court_id || 'CRT-01'),
-      courtName: String(row.nama_lapangan || row.court_name || 'Lapangan 1'),
-      startDate: String(row.tanggal_mulai || row.start_date || new Date().toISOString().split('T')[0]),
+      bookingCode: String(row.booking_code || row.kode_booking || `HEV-${Date.now()}`),
+      renterName: String(row.renter_name || row.nama_penyewa || 'Penyewa'),
+      renterPhone: String(row.renter_phone || row.telepon || row.no_hp || ''),
+      rentalType: (row.rental_type === 'HARIAN' || row.jenis_sewa === 'Harian' ? 'Harian' : row.rental_type === 'MINGGUAN' || row.jenis_sewa === 'Mingguan' ? 'Mingguan' : 'Bulanan') as any,
+      buildingId: String(row.building_id || row.gedung_id || 'BLD-01'),
+      buildingName: String(row.building_name || row.nama_gedung || 'GOR PB Hevindo'),
+      courtId: String(row.court_id || row.lapangan_id || 'CRT-01'),
+      courtName: String(row.court_name || row.nama_lapangan || 'Lapangan 1'),
+      startDate: String(row.rental_date || row.tanggal_mulai || row.start_date || new Date().toISOString().split('T')[0]),
       endDate: row.tanggal_selesai || row.end_date,
-      timeSlot: String(row.jam_sewa || row.time_slot || '19:00 - 21:00'),
-      durationHours: Number(row.durasi_jam || row.duration_hours || 2),
-      pricePerUnit: Number(row.harga_per_jam || row.price_per_unit || 50000),
-      totalPrice: Number(row.total_biaya || row.total_harga || row.total_price || 100000),
+      timeSlot: String((row.start_time && row.end_time) ? `${row.start_time} - ${row.end_time}` : (row.jam_sewa || row.time_slot || '19:00 - 21:00')),
+      durationHours: Number(row.duration_hours || row.durasi_jam || 2),
+      pricePerUnit: Number(row.price_per_unit || row.harga_per_jam || 50000),
+      totalPrice: Number(row.total_price || row.total_biaya || row.total_harga || 100000),
       status: (row.status || 'Aktif') as any,
-      paymentStatus: (row.status_pembayaran || row.payment_status || 'Lunas') as any,
-      paymentMethod: (row.metode_pembayaran || row.payment_method || 'Tunai') as any,
-      notes: row.catatan || row.notes || '',
+      paymentStatus: (row.payment_status === 'PAID' || row.status_pembayaran === 'Lunas' ? 'Lunas' : 'Belum Bayar') as any,
+      paymentMethod: (row.payment_method || row.metode_pembayaran || 'Tunai') as any,
+      notes: row.notes || row.catatan || '',
     }));
   } catch (err) {
     console.error('Error fetching sewa lapangan from Supabase:', err);
@@ -491,46 +506,49 @@ export async function saveSewaLapanganToSupabase(rental: CourtRental): Promise<{
   try {
     const payload: Record<string, any> = {
       id: rental.id,
-      kode_booking: rental.bookingCode,
       booking_code: rental.bookingCode,
-      nama_penyewa: rental.renterName,
+      kode_booking: rental.bookingCode,
       renter_name: rental.renterName,
+      nama_penyewa: rental.renterName,
+      renter_phone: rental.renterPhone,
       telepon: rental.renterPhone,
       no_hp: rental.renterPhone,
-      renter_phone: rental.renterPhone,
+      rental_type: rental.rentalType === 'Harian' ? 'HARIAN' : rental.rentalType === 'Mingguan' ? 'MINGGUAN' : 'BULANAN',
       jenis_sewa: rental.rentalType,
-      rental_type: rental.rentalType,
-      gedung_id: rental.buildingId,
       building_id: rental.buildingId,
-      nama_gedung: rental.buildingName,
+      gedung_id: rental.buildingId,
       building_name: rental.buildingName,
-      lapangan_id: rental.courtId,
+      nama_gedung: rental.buildingName,
       court_id: rental.courtId,
-      nama_lapangan: rental.courtName,
+      lapangan_id: rental.courtId,
       court_name: rental.courtName,
+      nama_lapangan: rental.courtName,
+      rental_date: rental.startDate,
       tanggal_mulai: rental.startDate,
       start_date: rental.startDate,
-      tanggal_selesai: rental.endDate,
       end_date: rental.endDate,
+      tanggal_selesai: rental.endDate,
+      start_time: rental.timeSlot ? rental.timeSlot.split('-')[0].trim() : '14:00',
+      end_time: rental.timeSlot ? rental.timeSlot.split('-')[1].trim() : '16:00',
       jam_sewa: rental.timeSlot,
       time_slot: rental.timeSlot,
-      durasi_jam: rental.durationHours,
       duration_hours: rental.durationHours,
-      harga_per_jam: rental.pricePerUnit,
+      durasi_jam: rental.durationHours,
       price_per_unit: rental.pricePerUnit,
+      harga_per_jam: rental.pricePerUnit,
+      total_price: rental.totalPrice,
       total_biaya: rental.totalPrice,
       total_harga: rental.totalPrice,
-      total_price: rental.totalPrice,
       status: rental.status,
+      payment_status: rental.paymentStatus === 'Lunas' ? 'PAID' : 'UNPAID',
       status_pembayaran: rental.paymentStatus,
-      payment_status: rental.paymentStatus,
-      metode_pembayaran: rental.paymentMethod,
       payment_method: rental.paymentMethod,
-      catatan: rental.notes,
+      metode_pembayaran: rental.paymentMethod,
       notes: rental.notes,
+      catatan: rental.notes,
     };
 
-    const { error } = await adaptiveUpsert('sewa_lapangan', payload, 'id');
+    const { error } = await adaptiveUpsert('court_rentals', payload, 'id');
     if (error) {
       console.warn('Gagal menyimpan sewa lapangan ke Supabase:', error.message);
       return { success: false, error: error.message };
@@ -545,7 +563,7 @@ export async function deleteSewaLapanganFromSupabase(rentalId: string): Promise<
   if (!supabase) return { success: false, error: 'Supabase belum diatur.' };
 
   try {
-    const { error } = await supabase.from('sewa_lapangan').delete().eq('id', rentalId);
+    const { error } = await supabase.from('court_rentals').delete().eq('id', rentalId);
     if (error) return { success: false, error: error.message };
     return { success: true };
   } catch (err: any) {
