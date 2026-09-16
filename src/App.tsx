@@ -580,6 +580,7 @@ export default function App() {
                 onUpdateAthlete={handleUpdateAthlete}
                 onDeleteAthlete={handleDeleteAthlete}
                 onBulkDelete={handleBulkDeleteAthletes}
+                onAthletesLoaded={(loaded) => setAthletes(loaded)}
                 currentRole={currentRole}
               />
             )}

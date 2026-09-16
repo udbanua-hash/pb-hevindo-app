@@ -22,10 +22,13 @@ export const getSupabaseConfig = () => ({
   isConfigured: isSupabaseConfigured(),
 });
 
-// Singleton client instance
-export const supabase: SupabaseClient | null = isSupabaseConfigured()
+// Singleton client instance - always non-null SupabaseClient
+export const supabase: SupabaseClient = isSupabaseConfigured()
   ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+  : createClient(
+      supabaseUrl || 'https://placeholder.supabase.co',
+      supabaseAnonKey || 'placeholder-anon-key'
+    );
 
 /**
  * Adaptive upsert helper that removes columns if Postgres rejects them
@@ -115,124 +118,231 @@ async function adaptiveUpsert(
 // 1. MODUL DATA ATLET (Tabel: 'atlet')
 // ==========================================
 
-export async function fetchAthletesFromSupabase(): Promise<Athlete[]> {
-  if (!supabase) return [];
+export function mapSupabaseRowToAthlete(row: any): Athlete {
+  return {
+    id: String(row.id || row.id_atlet || `ATL-${Date.now()}`),
+    idPb: String(row.id_pb || row.idPb || row.id_pbsi || row.no_pbsi || '-'),
+    nik: String(row.nik || '-'),
+    name: String(row.nama || row.name || row.athlete_name || 'Tanpa Nama'),
+    gender: (row.jenis_kelamin || row.gender || 'Putra') as any,
+    birthPlace: String(row.tempat_lahir || row.birth_place || 'Pekanbaru'),
+    birthDate: String(row.tanggal_lahir || row.birth_date || '2014-01-01'),
+    ageCategory: (row.kategori_usia || row.age_category || 'Pemula') as any,
+    trainingCategory: (row.kategori_latihan || row.training_category || 'Pembibitan') as any,
+    clubId: String(row.klub_id || row.club_id || 'CLB-001'),
+    clubName: String(row.nama_klub || row.club_name || 'PB Hevindo'),
+    parentName: String(row.nama_orang_tua || row.parent_name || '-'),
+    phoneNumber: String(row.no_hp || row.telepon || row.phone_number || '-'),
+    address: String(row.alamat || row.address || '-'),
+    isActive: row.status_aktif !== undefined ? Boolean(row.status_aktif) : (row.is_active !== undefined ? Boolean(row.is_active) : true),
+    duesStatus: (row.status_iuran || row.dues_status || 'Belum Bayar') as any,
+    joinDate: String(row.tanggal_gabung || row.join_date || '2025-01-01'),
+    qrCodeToken: String(row.qr_token || row.qrCodeToken || `HEV-QR-${row.id || Date.now()}`),
+    achievements: Array.isArray(row.achievements)
+      ? row.achievements
+      : typeof row.prestasi === 'string'
+      ? JSON.parse(row.prestasi)
+      : [],
+    transferHistory: Array.isArray(row.transfer_history)
+      ? row.transfer_history
+      : typeof row.riwayat_transfer === 'string'
+      ? JSON.parse(row.riwayat_transfer)
+      : [],
+  };
+}
 
+/**
+ * Mengambil data secara async dari tabel Supabase 'atlet'
+ * (await supabase.from('atlet').select('*'))
+ */
+export async function fetchAtlet(): Promise<{ data: Athlete[]; error: any }> {
   try {
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from('atlet')
       .select('*')
       .order('id', { ascending: true });
 
     if (error) {
-      console.warn('Gagal membaca data atlet dengan order id, mencoba tanpa order:', error.message);
+      // Retry without ordering if 'id' column ordering is not supported
       const retry = await supabase.from('atlet').select('*');
-      if (!retry.error) {
-        data = retry.data;
-        error = null;
-      } else {
-        console.warn('Gagal membaca data atlet dari Supabase:', retry.error.message);
-        return [];
+      if (!retry.error && retry.data) {
+        return { data: retry.data.map(mapSupabaseRowToAthlete), error: null };
       }
+      return { data: [], error };
     }
 
-    if (!data || !Array.isArray(data)) return [];
-
-    return data.map((row: any): Athlete => ({
-      id: String(row.id || row.id_atlet || `ATL-${Date.now()}`),
-      idPb: String(row.id_pb || row.idPb || row.id_pbsi || ''),
-      nik: String(row.nik || ''),
-      name: String(row.nama || row.name || row.athlete_name || 'Tanpa Nama'),
-      gender: (row.jenis_kelamin || row.gender || 'Putra') as any,
-      birthPlace: String(row.tempat_lahir || row.birth_place || 'Pekanbaru'),
-      birthDate: String(row.tanggal_lahir || row.birth_date || '2012-01-01'),
-      ageCategory: (row.kategori_usia || row.age_category || 'Pemula (U-15)') as any,
-      trainingCategory: (row.kategori_latihan || row.training_category || 'Regular') as any,
-      clubId: String(row.klub_id || row.club_id || 'CLUB-001'),
-      clubName: String(row.nama_klub || row.club_name || 'PB HEVINDO PEKANBARU'),
-      parentName: String(row.nama_orang_tua || row.parent_name || ''),
-      phoneNumber: String(row.telepon || row.no_hp || row.phone_number || ''),
-      address: String(row.alamat || row.address || ''),
-      isActive: row.status_aktif !== undefined ? Boolean(row.status_aktif) : (row.is_active !== undefined ? Boolean(row.is_active) : true),
-      duesStatus: (row.status_iuran || row.dues_status || 'Lunas') as any,
-      joinDate: String(row.tanggal_gabung || row.join_date || '2025-01-01'),
-      qrCodeToken: String(row.qr_token || row.qrCodeToken || `QR-${row.id || Date.now()}`),
-      achievements: Array.isArray(row.achievements)
-        ? row.achievements
-        : typeof row.prestasi === 'string'
-        ? JSON.parse(row.prestasi)
-        : [],
-      transferHistory: Array.isArray(row.transfer_history)
-        ? row.transfer_history
-        : typeof row.riwayat_transfer === 'string'
-        ? JSON.parse(row.riwayat_transfer)
-        : [],
-    }));
-  } catch (err) {
-    console.error('Error fetching athletes from Supabase:', err);
-    return [];
-  }
-}
-
-export async function saveAthleteToSupabase(athlete: Athlete): Promise<{ success: boolean; error?: any }> {
-  if (!supabase) {
-    return { success: false, error: 'Supabase credentials belum diatur.' };
-  }
-
-  try {
-    const payload: Record<string, any> = {
-      id: athlete.id,
-      nik: athlete.nik,
-      id_pb: athlete.idPb,
-      nama: athlete.name,
-      name: athlete.name,
-      jenis_kelamin: athlete.gender,
-      gender: athlete.gender,
-      tempat_lahir: athlete.birthPlace,
-      birth_place: athlete.birthPlace,
-      tanggal_lahir: athlete.birthDate,
-      birth_date: athlete.birthDate,
-      kategori_usia: athlete.ageCategory,
-      age_category: athlete.ageCategory,
-      kategori_latihan: athlete.trainingCategory,
-      training_category: athlete.trainingCategory,
-      nama_klub: athlete.clubName,
-      club_name: athlete.clubName,
-      klub_id: athlete.clubId,
-      club_id: athlete.clubId,
-      nama_orang_tua: athlete.parentName,
-      parent_name: athlete.parentName,
-      telepon: athlete.phoneNumber,
-      no_hp: athlete.phoneNumber,
-      phone_number: athlete.phoneNumber,
-      alamat: athlete.address,
-      address: athlete.address,
-      status_iuran: athlete.duesStatus,
-      dues_status: athlete.duesStatus,
-      status_aktif: athlete.isActive,
-      is_active: athlete.isActive,
-      tanggal_gabung: athlete.joinDate,
-      join_date: athlete.joinDate,
-    };
-
-    const { error } = await adaptiveUpsert('atlet', payload, 'id');
-    if (error) {
-      console.warn('Gagal menyimpan atlet ke Supabase:', error.message);
-      return { success: false, error: error.message };
+    if (!data || !Array.isArray(data)) {
+      return { data: [], error: null };
     }
-    return { success: true };
+
+    return { data: data.map(mapSupabaseRowToAthlete), error: null };
   } catch (err: any) {
-    return { success: false, error: err.message };
+    return { data: [], error: err };
   }
 }
 
-export async function deleteAthleteFromSupabase(athleteId: string): Promise<{ success: boolean; error?: any }> {
-  if (!supabase) return { success: false, error: 'Supabase belum diatur.' };
+// Alias for backwards compatibility
+export async function fetchAthletesFromSupabase(): Promise<Athlete[]> {
+  const res = await fetchAtlet();
+  return res.data;
+}
 
+/**
+ * Menyimpan data atlet baru ke Supabase
+ * (await supabase.from('atlet').insert([...]))
+ */
+export async function insertAthleteToSupabase(athlete: Athlete): Promise<{ success: boolean; data?: any; error?: any }> {
+  const basePayload: Record<string, any> = {
+    id: athlete.id,
+    nik: athlete.nik,
+    id_pb: athlete.idPb,
+    nama: athlete.name,
+    name: athlete.name,
+    jenis_kelamin: athlete.gender,
+    gender: athlete.gender,
+    tempat_lahir: athlete.birthPlace,
+    birth_place: athlete.birthPlace,
+    tanggal_lahir: athlete.birthDate,
+    birth_date: athlete.birthDate,
+    kategori_usia: athlete.ageCategory,
+    age_category: athlete.ageCategory,
+    kategori_latihan: athlete.trainingCategory,
+    training_category: athlete.trainingCategory,
+    nama_klub: athlete.clubName,
+    club_name: athlete.clubName,
+    klub_id: athlete.clubId,
+    club_id: athlete.clubId,
+    nama_orang_tua: athlete.parentName,
+    parent_name: athlete.parentName,
+    no_hp: athlete.phoneNumber,
+    telepon: athlete.phoneNumber,
+    phone_number: athlete.phoneNumber,
+    alamat: athlete.address,
+    address: athlete.address,
+    status_iuran: athlete.duesStatus,
+    dues_status: athlete.duesStatus,
+    status_aktif: athlete.isActive,
+    is_active: athlete.isActive,
+    tanggal_gabung: athlete.joinDate,
+    join_date: athlete.joinDate,
+  };
+
+  let curPayload = { ...basePayload };
+  let retries = 0;
+  while (retries < 15) {
+    const { data, error } = await supabase.from('atlet').insert([curPayload]).select();
+    if (!error) {
+      return { success: true, data };
+    }
+
+    // Jika kolom tidak ada di tabel atlet, hapus kolom tersebut dari payload lalu retry
+    const match = error.message.match(/column "([^"]+)" of relation "atlet" does not exist/i);
+    if (match && match[1] && match[1] in curPayload) {
+      delete curPayload[match[1]];
+      retries++;
+      continue;
+    }
+
+    // Jika id bermasalah (misal serial/uuid otomatis)
+    if (error.message.includes('invalid input syntax') && 'id' in curPayload) {
+      delete curPayload.id;
+      retries++;
+      continue;
+    }
+
+    // Coba fallback adaptiveUpsert jika ada konflik constraint
+    const fallback = await adaptiveUpsert('atlet', curPayload, 'id');
+    if (!fallback.error) {
+      return { success: true, data: fallback.data };
+    }
+
+    return { success: false, error: error.message };
+  }
+
+  return { success: false, error: 'Gagal menambahkan atlet ke Supabase.' };
+}
+
+/**
+ * Memperbarui data atlet yang sudah ada di Supabase
+ * (await supabase.from('atlet').update(...).eq('id', id))
+ */
+export async function updateAthleteToSupabase(athlete: Athlete): Promise<{ success: boolean; data?: any; error?: any }> {
+  const basePayload: Record<string, any> = {
+    nik: athlete.nik,
+    id_pb: athlete.idPb,
+    nama: athlete.name,
+    name: athlete.name,
+    jenis_kelamin: athlete.gender,
+    gender: athlete.gender,
+    tempat_lahir: athlete.birthPlace,
+    birth_place: athlete.birthPlace,
+    tanggal_lahir: athlete.birthDate,
+    birth_date: athlete.birthDate,
+    kategori_usia: athlete.ageCategory,
+    age_category: athlete.ageCategory,
+    kategori_latihan: athlete.trainingCategory,
+    training_category: athlete.trainingCategory,
+    nama_klub: athlete.clubName,
+    club_name: athlete.clubName,
+    klub_id: athlete.clubId,
+    club_id: athlete.clubId,
+    nama_orang_tua: athlete.parentName,
+    parent_name: athlete.parentName,
+    no_hp: athlete.phoneNumber,
+    telepon: athlete.phoneNumber,
+    phone_number: athlete.phoneNumber,
+    alamat: athlete.address,
+    address: athlete.address,
+    status_iuran: athlete.duesStatus,
+    dues_status: athlete.duesStatus,
+    status_aktif: athlete.isActive,
+    is_active: athlete.isActive,
+  };
+
+  let curPayload = { ...basePayload };
+  let retries = 0;
+  while (retries < 15) {
+    let { data, error } = await supabase.from('atlet').update(curPayload).eq('id', athlete.id).select();
+    if (!error) {
+      return { success: true, data };
+    }
+
+    const match = error.message.match(/column "([^"]+)" of relation "atlet" does not exist/i);
+    if (match && match[1] && match[1] in curPayload) {
+      delete curPayload[match[1]];
+      retries++;
+      continue;
+    }
+
+    // Coba fallback dengan match id_atlet
+    const retryIdAtlet = await supabase.from('atlet').update(curPayload).eq('id_atlet', athlete.id).select();
+    if (!retryIdAtlet.error) {
+      return { success: true, data: retryIdAtlet.data };
+    }
+
+    return { success: false, error: error.message };
+  }
+
+  return { success: false, error: 'Gagal memperbarui data atlet di Supabase.' };
+}
+
+// Alias saveAthleteToSupabase
+export async function saveAthleteToSupabase(athlete: Athlete): Promise<{ success: boolean; error?: any }> {
+  // Cek apakah sudah ada untuk update atau insert
+  const updateRes = await updateAthleteToSupabase(athlete);
+  if (updateRes.success) return { success: true };
+  return insertAthleteToSupabase(athlete);
+}
+
+/**
+ * Menghapus data atlet dari Supabase
+ * (await supabase.from('atlet').delete().eq('id', id))
+ */
+export async function deleteAthleteFromSupabase(athleteId: string): Promise<{ success: boolean; error?: any }> {
   try {
     let { error } = await supabase.from('atlet').delete().eq('id', athleteId);
     if (error) {
-      // Fallback try column 'id_atlet'
+      // Fallback coba kolom 'id_atlet'
       const fallback = await supabase.from('atlet').delete().eq('id_atlet', athleteId);
       if (!fallback.error) return { success: true };
       return { success: false, error: error.message };

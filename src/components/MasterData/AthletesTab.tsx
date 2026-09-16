@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Athlete, PBSIAgeCategory, TrainingCategory, UserRole, AthleteAchievement, ClubTransferHistory } from '../../types';
 import {
   matchesMultiFieldSearch,
@@ -25,14 +25,26 @@ import {
   ChevronRight,
   UserCheck,
   Filter,
+  Database,
+  Cloud,
 } from 'lucide-react';
+import {
+  supabase,
+  isSupabaseConfigured,
+  mapSupabaseRowToAthlete,
+  fetchAtlet as fetchAtletService,
+  insertAthleteToSupabase,
+  updateAthleteToSupabase,
+  deleteAthleteFromSupabase,
+} from '../../services/supabase';
 
 interface AthletesTabProps {
   athletes: Athlete[];
-  onAddAthlete: (athlete: Athlete) => void;
-  onUpdateAthlete: (athlete: Athlete) => void;
-  onDeleteAthlete: (id: string) => void;
-  onBulkDelete: (ids: string[]) => void;
+  onAddAthlete?: (athlete: Athlete) => void;
+  onUpdateAthlete?: (athlete: Athlete) => void;
+  onDeleteAthlete?: (id: string) => void;
+  onBulkDelete?: (ids: string[]) => void;
+  onAthletesLoaded?: (athletes: Athlete[]) => void;
   currentRole: UserRole;
 }
 
@@ -42,8 +54,15 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
   onUpdateAthlete,
   onDeleteAthlete,
   onBulkDelete,
+  onAthletesLoaded,
   currentRole,
 }) => {
+  // Real-time Supabase State
+  const [athletesData, setAthletesData] = useState<Athlete[]>(athletes || []);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPBSICategory, setFilterPBSICategory] = useState<string>('all');
@@ -89,9 +108,61 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
   // Allow edit for all roles except read-only Publik
   const canEdit = currentRole !== 'Publik';
 
+  // Sync parent prop if updated
+  useEffect(() => {
+    if (athletes && athletes.length > 0) {
+      setAthletesData(athletes);
+    }
+  }, [athletes]);
+
+  /**
+   * 2. Ambil Data (Fetch/Read):
+   * - Buat fungsi fetchAtlet untuk mengambil data secara async dari tabel Supabase atlet
+   *   (await supabase.from('atlet').select('*'))
+   * - Panggil fetchAtlet() di dalam useEffect saat komponen pertama kali dimuat.
+   */
+  const fetchAtlet = async () => {
+    setIsLoading(true);
+    try {
+      // Query langsung ke tabel Supabase 'atlet'
+      const { data, error } = await supabase.from('atlet').select('*');
+
+      if (error) {
+        console.warn('Gagal fetchAtlet dari Supabase:', error.message);
+        setSyncStatus({
+          type: 'error',
+          message: `Koneksi Supabase: ${error.message}. Periksa VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY.`,
+        });
+      } else if (data) {
+        const mapped = data.map(mapSupabaseRowToAthlete);
+        setAthletesData(mapped);
+        setSyncStatus({
+          type: 'success',
+          message: `Berhasil memuat ${mapped.length} data atlet langsung dari database Supabase (tabel 'atlet').`,
+        });
+        if (onAthletesLoaded) {
+          onAthletesLoaded(mapped);
+        }
+      }
+    } catch (err: any) {
+      console.error('Error saat fetchAtlet:', err);
+      setSyncStatus({
+        type: 'error',
+        message: `Terjadi kendala koneksi Supabase: ${err?.message || err}`,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Panggil fetchAtlet() di dalam useEffect saat komponen pertama kali dimuat
+  useEffect(() => {
+    fetchAtlet();
+  }, []);
+
   // Filter & Search logic using multi-field space separated search
   const filteredAthletes = useMemo(() => {
-    return athletes.filter((athlete) => {
+    return athletesData.filter((athlete) => {
       // Category filters
       if (filterPBSICategory !== 'all' && athlete.ageCategory !== filterPBSICategory) return false;
       if (filterTrainingCategory !== 'all' && athlete.trainingCategory !== filterTrainingCategory) return false;
@@ -112,7 +183,7 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
         athlete.isActive ? 'aktif' : 'nonaktif',
       ]);
     });
-  }, [athletes, searchQuery, filterPBSICategory, filterTrainingCategory, filterDuesStatus]);
+  }, [athletesData, searchQuery, filterPBSICategory, filterTrainingCategory, filterDuesStatus]);
 
   // Sorted
   const sortedAthletes = useMemo(() => {
@@ -191,19 +262,27 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
   };
 
   // Save Athlete
-  const handleSaveForm = (e: React.FormEvent) => {
+  // 3. Tambah Data Baru (Create):
+  // - Saat submit form atlet baru, jalankan await supabase.from('atlet').insert([...])
+  // - Setelah insert sukses, langsung panggil kembali fetchAtlet() untuk memperbarui tampilan di layar.
+  // 5. Pastikan semua aksi (Tambah/Edit/Hapus) tidak lagi hanya mengubah state lokal,
+  //    melainkan wajib melakukan query ke Supabase terlebih dahulu.
+  const handleSaveForm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.birthDate) {
+    if (!formData.name?.trim() || !formData.birthDate) {
       alert('Nama dan Tanggal Lahir wajib diisi!');
       return;
     }
 
+    setIsSaving(true);
+    setSyncStatus(null);
+
     const { category } = calculatePBSICategory(formData.birthDate);
     const athletePayload: Athlete = {
-      id: editingAthlete ? editingAthlete.id : formData.id || `ATL-${Date.now()}`,
+      id: editingAthlete ? editingAthlete.id : formData.id || `ATL-${Date.now().toString().slice(-6)}`,
       idPb: formData.idPb || 'PBSI-GEN',
       nik: formData.nik || '-',
-      name: formData.name,
+      name: formData.name.trim(),
       gender: formData.gender as any,
       birthPlace: formData.birthPlace || 'Pekanbaru',
       birthDate: formData.birthDate,
@@ -222,18 +301,112 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
       qrCodeToken: editingAthlete?.qrCodeToken || `HEV-QR-${Date.now()}`,
     };
 
-    if (editingAthlete) {
-      onUpdateAthlete(athletePayload);
-    } else {
-      onAddAthlete(athletePayload);
+    try {
+      if (editingAthlete) {
+        // Query UPDATE ke Supabase
+        const res = await updateAthleteToSupabase(athletePayload);
+        if (!res.success) {
+          throw new Error(res.error || 'Gagal memperbarui atlet di database Supabase');
+        }
+        setSyncStatus({
+          type: 'success',
+          message: `Data atlet "${athletePayload.name}" berhasil diupdate di database Supabase.`,
+        });
+        if (onUpdateAthlete) onUpdateAthlete(athletePayload);
+      } else {
+        // 3. Tambah Data Baru: jalankan await supabase.from('atlet').insert([...])
+        const res = await insertAthleteToSupabase(athletePayload);
+        if (!res.success) {
+          throw new Error(res.error || 'Gagal menambahkan atlet ke database Supabase');
+        }
+        setSyncStatus({
+          type: 'success',
+          message: `Atlet baru "${athletePayload.name}" berhasil disimpan ke database Supabase!`,
+        });
+        if (onAddAthlete) onAddAthlete(athletePayload);
+      }
+
+      // Setelah insert/update sukses, langsung panggil kembali fetchAtlet() untuk memperbarui tampilan di layar
+      await fetchAtlet();
+      setIsFormModalOpen(false);
+    } catch (err: any) {
+      alert(`Gagal menyimpan ke Supabase: ${err?.message || err}`);
+      setSyncStatus({
+        type: 'error',
+        message: `Error Supabase: ${err?.message || err}`,
+      });
+    } finally {
+      setIsSaving(false);
     }
-    setIsFormModalOpen(false);
+  };
+
+  // 4. Hapus Data (Delete):
+  // - Pada tombol Hapus, jalankan await supabase.from('atlet').delete().eq('id', id)
+  // - Setelah delete sukses, panggil kembali fetchAtlet()
+  const handleDeleteAthleteClick = async (athleteId: string, athleteName: string) => {
+    if (!confirm(`Yakin ingin menghapus atlet "${athleteName}" (${athleteId}) dari database Supabase?`)) {
+      return;
+    }
+
+    setIsLoading(true);
+    setSyncStatus(null);
+    try {
+      // Jalankan query delete ke Supabase terlebih dahulu
+      const res = await deleteAthleteFromSupabase(athleteId);
+      if (!res.success) {
+        throw new Error(res.error || 'Gagal menghapus atlet dari Supabase');
+      }
+
+      setSyncStatus({
+        type: 'success',
+        message: `Atlet "${athleteName}" berhasil dihapus dari database Supabase.`,
+      });
+      if (onDeleteAthlete) onDeleteAthlete(athleteId);
+
+      // Setelah delete sukses, panggil kembali fetchAtlet()
+      await fetchAtlet();
+    } catch (err: any) {
+      alert(`Gagal menghapus dari Supabase: ${err?.message || err}`);
+      setSyncStatus({
+        type: 'error',
+        message: `Gagal menghapus: ${err?.message || err}`,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleBulkDeleteClick = async () => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`Yakin ingin menghapus ${selectedIds.length} atlet terpilih dari Supabase?`)) return;
+
+    setIsLoading(true);
+    setSyncStatus(null);
+    try {
+      for (const id of selectedIds) {
+        await deleteAthleteFromSupabase(id);
+      }
+      setSelectedIds([]);
+      setSyncStatus({
+        type: 'success',
+        message: `${selectedIds.length} atlet berhasil dihapus dari database Supabase.`,
+      });
+      if (onBulkDelete) onBulkDelete(selectedIds);
+      await fetchAtlet();
+    } catch (err: any) {
+      setSyncStatus({
+        type: 'error',
+        message: `Gagal hapus massal: ${err?.message || err}`,
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Export to CSV
   const handleExportCSV = () => {
     exportToCSV(
-      athletes.map((a) => ({
+      athletesData.map((a) => ({
         'ID Atlet': a.id,
         'No PBSI': a.idPb,
         'NIK': a.nik,
@@ -265,7 +438,7 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
     position: 'Juara 1',
   });
 
-  const handleAddAchievement = () => {
+  const handleAddAchievement = async () => {
     if (!activeAchievementModalAthlete || !newAchievement.tournamentName) return;
     const updated: Athlete = {
       ...activeAchievementModalAthlete,
@@ -278,7 +451,9 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
         },
       ],
     };
-    onUpdateAthlete(updated);
+    await updateAthleteToSupabase(updated);
+    if (onUpdateAthlete) onUpdateAthlete(updated);
+    await fetchAtlet();
     setActiveAchievementModalAthlete(updated);
     setNewAchievement({
       tournamentName: '',
@@ -299,7 +474,7 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
     notes: '',
   });
 
-  const handleAddTransfer = () => {
+  const handleAddTransfer = async () => {
     if (!activeTransferModalAthlete || !newTransfer.toClub) return;
     const updated: Athlete = {
       ...activeTransferModalAthlete,
@@ -316,37 +491,88 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
         },
       ],
     };
-    onUpdateAthlete(updated);
+    await updateAthleteToSupabase(updated);
+    if (onUpdateAthlete) onUpdateAthlete(updated);
+    await fetchAtlet();
     setActiveTransferModalAthlete(updated);
     setNewTransfer({ toClub: '', type: 'Pindah Kategori', notes: '' });
   };
 
   return (
     <div className="space-y-4">
-      {/* Header Bar with Title, Total Count, and "+ Tambah Atlet Baru" Button */}
+      {/* Header Bar with Title, Total Count, Supabase Status and Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-850 p-4 rounded-xl border border-slate-800 shadow-sm">
         <div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
             <span className="text-xl">🏸</span>
             <h2 className="text-base font-bold text-white tracking-wide">Data Atlet PB HEVINDO & PBSI</h2>
             <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-              {athletes.length} Atlet Terdaftar
+              {athletesData.length} Atlet Terdaftar
+            </span>
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium border flex items-center space-x-1 ${
+              isSupabaseConfigured()
+                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isSupabaseConfigured() ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span>{isSupabaseConfigured() ? 'Supabase (On)' : 'Supabase (Off)'}</span>
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Data master atlet tersinkronisasi langsung dengan database Supabase (tabel <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded font-mono text-[11px]">atlet</code>).
+            Manajemen data atlet terhubung langsung dengan tabel Supabase <code className="text-emerald-400 bg-slate-900 px-1 py-0.5 rounded font-mono text-[11px]">atlet</code>.
           </p>
         </div>
 
-        <button
-          id="btn-add-athlete-top"
-          onClick={handleOpenAddModal}
-          className="flex items-center justify-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-md shadow-emerald-900/30 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Tambah Atlet Baru</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            id="btn-refresh-athletes-supabase"
+            onClick={fetchAtlet}
+            disabled={isLoading}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition disabled:opacity-50"
+            title="Muat ulang dan sinkronkan data langsung dari Supabase"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isLoading ? 'animate-spin' : ''}`} />
+            <span>{isLoading ? 'Memuat...' : 'Refresh Supabase'}</span>
+          </button>
+
+          <button
+            id="btn-add-athlete-top"
+            onClick={handleOpenAddModal}
+            className="flex items-center justify-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-md shadow-emerald-900/30 hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Tambah Atlet Baru</span>
+          </button>
+        </div>
       </div>
+
+      {/* Notification / Sync Status Banner */}
+      {syncStatus && (
+        <div className={`p-3 rounded-lg border text-xs flex items-center justify-between transition-all ${
+          syncStatus.type === 'success'
+            ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+            : syncStatus.type === 'error'
+            ? 'bg-red-950/40 border-red-500/30 text-red-300'
+            : 'bg-blue-950/40 border-blue-500/30 text-blue-300'
+        }`}>
+          <div className="flex items-center space-x-2">
+            {syncStatus.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            ) : syncStatus.type === 'error' ? (
+              <XCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+            ) : (
+              <Database className="w-4 h-4 text-blue-400 flex-shrink-0" />
+            )}
+            <span>{syncStatus.message}</span>
+          </div>
+          <button
+            onClick={() => setSyncStatus(null)}
+            className="text-xs opacity-70 hover:opacity-100 ml-3 font-bold"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Top Toolbar: Search, Filters, Bulk Actions, Add */}
       <div className="bg-slate-850 p-4 rounded-xl border border-slate-800 space-y-3">
@@ -380,13 +606,9 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
             {selectedIds.length > 0 && canEdit && (
               <button
                 id="btn-bulk-delete-athletes"
-                onClick={() => {
-                  if (confirm(`Hapus ${selectedIds.length} atlet terpilih?`)) {
-                    onBulkDelete(selectedIds);
-                    setSelectedIds([]);
-                  }
-                }}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-500/30 rounded-lg text-xs font-semibold transition"
+                onClick={handleBulkDeleteClick}
+                disabled={isLoading}
+                className="flex items-center space-x-1.5 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-500/30 rounded-lg text-xs font-semibold transition disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Hapus Terpilih ({selectedIds.length})</span>
@@ -557,10 +779,38 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {paginatedAthletes.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-400">
-                    Tidak ada atlet yang cocok dengan filter atau pencarian Anda.
+                  <td colSpan={9} className="p-12 text-center text-slate-300">
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin" />
+                      <span className="text-sm font-medium">Mengambil data atlet langsung dari tabel Supabase <code className="text-emerald-400 font-mono">atlet</code>...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : paginatedAthletes.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="p-10 text-center text-slate-400">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <Database className="w-8 h-8 text-slate-600 mb-1" />
+                      <p className="text-sm font-semibold text-slate-300">
+                        {searchQuery || filterPBSICategory !== 'all' || filterTrainingCategory !== 'all' || filterDuesStatus !== 'all'
+                          ? 'Tidak ada atlet yang cocok dengan filter atau pencarian Anda.'
+                          : 'Belum ada data atlet yang tersimpan di Supabase.'}
+                      </p>
+                      <p className="text-xs text-slate-500 max-w-md">
+                        {searchQuery
+                          ? 'Coba ganti kata kunci atau reset filter pencarian.'
+                          : 'Tabel "atlet" di Supabase belum memiliki baris data. Klik tombol di bawah untuk menambahkan atlet baru ke Supabase.'}
+                      </p>
+                      <button
+                        onClick={handleOpenAddModal}
+                        className="mt-2 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>+ Tambah Atlet Baru</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -689,12 +939,9 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                           {/* Tombol Hapus */}
                           <button
                             id={`btn-del-${athlete.id}`}
-                            onClick={() => {
-                              if (confirm(`Yakin ingin menghapus atlet "${athlete.name}" (${athlete.id}) dari database Supabase?`)) {
-                                onDeleteAthlete(athlete.id);
-                              }
-                            }}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-red-500/15 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 text-xs font-semibold transition"
+                            onClick={() => handleDeleteAthleteClick(athlete.id, athlete.name)}
+                            disabled={isLoading}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-red-500/15 hover:bg-red-500/30 text-red-400 hover:text-red-300 border border-red-500/30 text-xs font-semibold transition disabled:opacity-50"
                             title={`Hapus atlet ${athlete.name} dari database Supabase`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -988,9 +1235,11 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-900/30"
+                  disabled={isSaving}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-900/30 flex items-center space-x-2"
                 >
-                  Simpan Data Atlet
+                  {isSaving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isSaving ? 'Menyimpan ke Supabase...' : 'Simpan Data Atlet'}</span>
                 </button>
               </div>
             </form>
