@@ -1,0 +1,6 @@
+{
+  "name": "Sistem Database Klub Bulutangkis HEVINDO",
+  "description": "Sistem informasi manajemen klub bulutangkis HEVINDO: master data atlet PBSI, pelatih, iuran otomatis, penjualan kantin/toko, sewa lapangan, turnamen rally point 15, dan absensi QR code.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
