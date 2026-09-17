@@ -39,6 +39,7 @@ interface CourtRentalsPortalProps {
   onDeleteRental: (id: string) => void;
   onAddBuilding: (building: Building) => void;
   onUpdateBuilding: (building: Building) => void;
+  onDeleteBuilding?: (id: string) => void;
   currentRole: UserRole;
 }
 
@@ -50,6 +51,7 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
   onDeleteRental,
   onAddBuilding,
   onUpdateBuilding,
+  onDeleteBuilding,
   currentRole,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'bookings' | 'buildings' | 'matrix'>('bookings');
@@ -67,6 +69,25 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
   const [selectedRentalForInvoice, setSelectedRentalForInvoice] = useState<CourtRental | null>(null);
   const [isBuildingModalOpen, setIsBuildingModalOpen] = useState(false);
   const [editingBuilding, setEditingBuilding] = useState<Building | null>(null);
+
+  // Edit Booking Modal State
+  const [isEditRentalModalOpen, setIsEditRentalModalOpen] = useState(false);
+  const [editingRental, setEditingRental] = useState<CourtRental | null>(null);
+
+  // Delete Confirmation Modal State
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    isOpen: boolean;
+    type: 'rental' | 'building';
+    id: string;
+    title: string;
+    description: string;
+  }>({
+    isOpen: false,
+    type: 'rental',
+    id: '',
+    title: '',
+    description: '',
+  });
 
   // New Booking Form State
   const defaultBuilding = buildings[0] || null;
@@ -285,14 +306,80 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
   };
 
   const handlePelunasan = (rental: CourtRental) => {
-    if (confirm(`Konfirmasi pelunasan sisa tagihan ${formatRupiah(rental.remainingAmount || 0)} untuk ${rental.renterName}?`)) {
-      onUpdateRental({
-        ...rental,
-        paymentStatus: 'Lunas',
-        dpAmount: undefined,
-        remainingAmount: 0,
-      });
+    onUpdateRental({
+      ...rental,
+      paymentStatus: 'Lunas',
+      dpAmount: undefined,
+      remainingAmount: 0,
+    });
+  };
+
+  const handleQuickPaymentStatus = (rental: CourtRental, newStatus: 'Lunas' | 'DP / Panjar' | 'Belum Bayar') => {
+    let dp = rental.dpAmount;
+    let rem = rental.remainingAmount;
+    if (newStatus === 'Lunas') {
+      dp = undefined;
+      rem = 0;
+    } else if (newStatus === 'DP / Panjar') {
+      dp = rental.dpAmount || Math.round(rental.totalPrice / 2);
+      rem = rental.totalPrice - dp;
+    } else {
+      dp = 0;
+      rem = rental.totalPrice;
     }
+    onUpdateRental({
+      ...rental,
+      paymentStatus: newStatus,
+      dpAmount: dp,
+      remainingAmount: rem,
+    });
+  };
+
+  const handleOpenEditRental = (rental: CourtRental) => {
+    setEditingRental({ ...rental });
+    setIsEditRentalModalOpen(true);
+  };
+
+  const handleSaveEditRental = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRental) return;
+    onUpdateRental(editingRental);
+    setIsEditRentalModalOpen(false);
+    setEditingRental(null);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteConfirm.type === 'rental') {
+      onDeleteRental(deleteConfirm.id);
+    } else if (deleteConfirm.type === 'building' && onDeleteBuilding) {
+      onDeleteBuilding(deleteConfirm.id);
+    }
+    setDeleteConfirm({ isOpen: false, type: 'rental', id: '', title: '', description: '' });
+  };
+
+  const handleAddCourtToEditingBuilding = () => {
+    if (!editingBuilding) return;
+    const courtNumber = (editingBuilding.courts?.length || 0) + 1;
+    const newCourt = {
+      id: `CRT-${Date.now().toString().slice(-4)}`,
+      name: `Lapangan ${courtNumber}`,
+      buildingId: editingBuilding.id,
+      buildingName: editingBuilding.name,
+      surfaceType: 'Karpet Vinyl BWF',
+      isActive: true,
+    };
+    setEditingBuilding({
+      ...editingBuilding,
+      courts: [...(editingBuilding.courts || []), newCourt],
+    });
+  };
+
+  const handleRemoveCourtFromEditingBuilding = (courtId: string) => {
+    if (!editingBuilding) return;
+    setEditingBuilding({
+      ...editingBuilding,
+      courts: editingBuilding.courts.filter((c) => c.id !== courtId),
+    });
   };
 
   const handleSaveBuilding = (e: React.FormEvent) => {
@@ -658,22 +745,31 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
                           </td>
 
                           <td className="p-3.5 text-center">
-                            <span
-                              className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                                r.paymentStatus === 'Lunas'
-                                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                                  : r.paymentStatus === 'DP / Panjar'
-                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                                  : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
-                              }`}
-                            >
-                              {r.paymentStatus}
-                            </span>
-                            {r.paymentStatus === 'DP / Panjar' && r.remainingAmount ? (
-                              <span className="block text-[10px] text-rose-400 mt-0.5 font-mono">
-                                Sisa: {formatRupiah(r.remainingAmount)}
-                              </span>
-                            ) : null}
+                            <div className="flex flex-col items-center space-y-1">
+                              <select
+                                value={r.paymentStatus}
+                                onChange={(e) =>
+                                  handleQuickPaymentStatus(r, e.target.value as 'Lunas' | 'DP / Panjar' | 'Belum Bayar')
+                                }
+                                className={`text-[10px] font-bold rounded-lg px-2 py-1 bg-slate-900 border cursor-pointer focus:outline-none transition ${
+                                  r.paymentStatus === 'Lunas'
+                                    ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+                                    : r.paymentStatus === 'DP / Panjar'
+                                    ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+                                    : 'text-rose-300 border-rose-500/40 bg-rose-500/10'
+                                }`}
+                                title="Ubah status bayar (Langsung tersimpan di Supabase)"
+                              >
+                                <option value="Lunas">Lunas</option>
+                                <option value="DP / Panjar">DP / Panjar</option>
+                                <option value="Belum Bayar">Belum Bayar</option>
+                              </select>
+                              {r.paymentStatus === 'DP / Panjar' && r.remainingAmount ? (
+                                <span className="block text-[10px] text-rose-400 font-mono">
+                                  Sisa: {formatRupiah(r.remainingAmount)}
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
 
                           <td className="p-3.5 text-center">
@@ -681,27 +777,38 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
                               {r.paymentStatus === 'DP / Panjar' && (
                                 <button
                                   onClick={() => handlePelunasan(r)}
-                                  className="p-1.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 rounded-lg text-[10px] font-bold transition"
+                                  className="px-2 py-1 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 rounded-lg text-[10px] font-bold transition"
                                   title="Konfirmasi Pelunasan Sisa"
                                 >
                                   Lunasi
                                 </button>
                               )}
                               <button
+                                onClick={() => handleOpenEditRental(r)}
+                                className="p-1.5 bg-slate-800 text-slate-300 hover:text-indigo-300 hover:bg-slate-700 rounded-lg transition"
+                                title="Edit Booking Sewa"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
                                 onClick={() => setSelectedRentalForInvoice(r)}
-                                className="p-1.5 bg-slate-800 text-slate-300 hover:text-white rounded-lg transition"
+                                className="p-1.5 bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition"
                                 title="Cetak Bukti Sewa / Invoice"
                               >
                                 <Printer className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => {
-                                  if (confirm(`Hapus booking sewa ${r.bookingCode} atas nama ${r.renterName}?`)) {
-                                    onDeleteRental(r.id);
-                                  }
-                                }}
-                                className="p-1.5 bg-slate-800 text-slate-500 hover:text-rose-400 rounded-lg transition"
-                                title="Batalkan / Hapus"
+                                onClick={() =>
+                                  setDeleteConfirm({
+                                    isOpen: true,
+                                    type: 'rental',
+                                    id: r.id,
+                                    title: 'Batalkan Sewa Lapangan',
+                                    description: `Yakin ingin membatalkan & menghapus transaksi sewa ${r.bookingCode} atas nama ${r.renterName}? Data akan dihapus dari Supabase.`,
+                                  })
+                                }
+                                className="p-1.5 bg-slate-800 text-slate-500 hover:text-rose-400 hover:bg-slate-700 rounded-lg transition"
+                                title="Batalkan / Hapus Booking"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -774,16 +881,35 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
                         <span className="truncate">{bld.address}</span>
                       </p>
                     </div>
-                    <button
-                      onClick={() => {
-                        setEditingBuilding(bld);
-                        setIsBuildingModalOpen(true);
-                      }}
-                      className="p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg transition"
-                      title="Edit Gedung & Tarif"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => {
+                          setEditingBuilding(bld);
+                          setIsBuildingModalOpen(true);
+                        }}
+                        className="p-1.5 bg-slate-800 text-slate-400 hover:text-white rounded-lg transition"
+                        title="Edit Gedung & Lapangan"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      {onDeleteBuilding && (
+                        <button
+                          onClick={() =>
+                            setDeleteConfirm({
+                              isOpen: true,
+                              type: 'building',
+                              id: bld.id,
+                              title: 'Hapus Gedung Olahraga',
+                              description: `Apakah Anda yakin ingin menghapus gedung "${bld.name}" berserta ${bld.courts.length} lapangannya? Data akan dihapus dari Supabase.`,
+                            })
+                          }
+                          className="p-1.5 bg-slate-800 text-slate-400 hover:text-rose-400 rounded-lg transition"
+                          title="Hapus Gedung & Lapangan"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <p className="text-xs text-slate-400 leading-relaxed">{bld.description}</p>
@@ -1426,6 +1552,67 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
                 </div>
               </div>
 
+              {/* Kelola Daftar Lapangan di Gedung Ini */}
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase text-slate-300 tracking-wider">
+                    Daftar Lapangan ({editingBuilding.courts?.length || 0} Court):
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleAddCourtToEditingBuilding}
+                    className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold flex items-center space-x-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Tambah Lapangan</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                  {(!editingBuilding.courts || editingBuilding.courts.length === 0) ? (
+                    <p className="text-[11px] text-slate-500 italic py-1">Belum ada lapangan di gedung ini.</p>
+                  ) : (
+                    editingBuilding.courts.map((court, idx) => (
+                      <div key={court.id || idx} className="flex items-center space-x-2 bg-slate-900 p-2 rounded-lg border border-slate-800">
+                        <input
+                          type="text"
+                          value={court.name}
+                          onChange={(e) => {
+                            const updatedCourts = [...editingBuilding.courts];
+                            updatedCourts[idx] = { ...updatedCourts[idx], name: e.target.value };
+                            setEditingBuilding({ ...editingBuilding, courts: updatedCourts });
+                          }}
+                          placeholder="Nama Lapangan"
+                          className="flex-1 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-white"
+                        />
+                        <select
+                          value={court.surfaceType}
+                          onChange={(e) => {
+                            const updatedCourts = [...editingBuilding.courts];
+                            updatedCourts[idx] = { ...updatedCourts[idx], surfaceType: e.target.value as any };
+                            setEditingBuilding({ ...editingBuilding, courts: updatedCourts });
+                          }}
+                          className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300"
+                        >
+                          <option value="Karpet Vinyl BWF">Karpet Vinyl BWF</option>
+                          <option value="Parket Kayu Standar BWF">Parket Kayu BWF</option>
+                          <option value="Semen Halus">Semen Halus</option>
+                          <option value="Interlock Modular">Interlock Modular</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCourtFromEditingBuilding(court.id)}
+                          className="p-1 text-slate-500 hover:text-rose-400 rounded"
+                          title="Hapus Lapangan"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
               <div className="pt-3 border-t border-slate-800 flex justify-end space-x-2">
                 <button
                   type="button"
@@ -1519,6 +1706,204 @@ export const CourtRentalsPortal: React.FC<CourtRentalsPortalProps> = ({
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Cetak Faktur</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL: EDIT BOOKING SEWA LAPANGAN */}
+      {isEditRentalModalOpen && editingRental && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white">Edit Transaksi Booking Sewa</h3>
+                <p className="text-xs text-indigo-400 font-mono">{editingRental.bookingCode}</p>
+              </div>
+              <button
+                onClick={() => setIsEditRentalModalOpen(false)}
+                className="text-slate-400 hover:text-white text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditRental} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Nama Penyewa *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingRental.renterName}
+                    onChange={(e) => setEditingRental({ ...editingRental, renterName: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">No. HP / WhatsApp *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingRental.renterPhone}
+                    onChange={(e) => setEditingRental({ ...editingRental, renterPhone: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Tanggal Sewa</label>
+                  <input
+                    type="date"
+                    required
+                    value={editingRental.startDate}
+                    onChange={(e) => setEditingRental({ ...editingRental, startDate: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Sesi Waktu</label>
+                  <input
+                    type="text"
+                    value={editingRental.timeSlot}
+                    onChange={(e) => setEditingRental({ ...editingRental, timeSlot: e.target.value })}
+                    placeholder="19:00 - 21:00 (Malam)"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Total Tarif (Rp)</label>
+                  <input
+                    type="number"
+                    value={editingRental.totalPrice}
+                    onChange={(e) => {
+                      const total = Number(e.target.value);
+                      const rem = editingRental.paymentStatus === 'Lunas' ? 0 : total - (editingRental.dpAmount || 0);
+                      setEditingRental({ ...editingRental, totalPrice: total, remainingAmount: rem });
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Status Pembayaran</label>
+                  <select
+                    value={editingRental.paymentStatus}
+                    onChange={(e) => {
+                      const newStatus = e.target.value as 'Lunas' | 'DP / Panjar' | 'Belum Bayar';
+                      let dp = editingRental.dpAmount;
+                      let rem = editingRental.remainingAmount;
+                      if (newStatus === 'Lunas') {
+                        dp = undefined;
+                        rem = 0;
+                      } else if (newStatus === 'DP / Panjar') {
+                        dp = editingRental.dpAmount || Math.round(editingRental.totalPrice / 2);
+                        rem = editingRental.totalPrice - dp;
+                      } else {
+                        dp = 0;
+                        rem = editingRental.totalPrice;
+                      }
+                      setEditingRental({
+                        ...editingRental,
+                        paymentStatus: newStatus,
+                        dpAmount: dp,
+                        remainingAmount: rem,
+                      });
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white"
+                  >
+                    <option value="Lunas">Lunas</option>
+                    <option value="DP / Panjar">DP / Panjar</option>
+                    <option value="Belum Bayar">Belum Bayar</option>
+                  </select>
+                </div>
+              </div>
+
+              {editingRental.paymentStatus === 'DP / Panjar' && (
+                <div className="grid grid-cols-2 gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                  <div>
+                    <label className="block text-amber-300 mb-1 font-semibold">Nominal DP (Rp)</label>
+                    <input
+                      type="number"
+                      value={editingRental.dpAmount || 0}
+                      onChange={(e) => {
+                        const dp = Number(e.target.value);
+                        setEditingRental({
+                          ...editingRental,
+                          dpAmount: dp,
+                          remainingAmount: Math.max(0, editingRental.totalPrice - dp),
+                        });
+                      }}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <span className="block text-slate-400 mb-1 font-semibold">Sisa Pelunasan:</span>
+                    <span className="text-sm font-bold text-rose-400 font-mono block pt-2">
+                      {formatRupiah(editingRental.remainingAmount || 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Catatan</label>
+                <input
+                  type="text"
+                  value={editingRental.notes || ''}
+                  onChange={(e) => setEditingRental({ ...editingRental, notes: e.target.value })}
+                  placeholder="Catatan sewa lapangan"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsEditRentalModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg"
+                >
+                  Simpan Perubahan ke Supabase
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: KONFIRMASI HAPUS (RENTAL ATAU GEDUNG) */}
+      {deleteConfirm.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-rose-500/30 rounded-2xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center space-x-3 text-rose-400">
+              <Trash2 className="w-5 h-5 shrink-0" />
+              <h4 className="font-bold text-white text-sm">{deleteConfirm.title}</h4>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">{deleteConfirm.description}</p>
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() =>
+                  setDeleteConfirm({ isOpen: false, type: 'rental', id: '', title: '', description: '' })
+                }
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition"
+              >
+                Hapus Permanen
               </button>
             </div>
           </div>

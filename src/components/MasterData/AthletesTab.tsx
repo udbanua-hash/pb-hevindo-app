@@ -1,5 +1,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Athlete, PBSIAgeCategory, TrainingCategory, UserRole, AthleteAchievement, ClubTransferHistory } from '../../types';
+import {
+  Athlete,
+  PBSIAgeCategory,
+  TrainingCategory,
+  UserRole,
+  AthleteAchievement,
+  ClubTransferHistory,
+  AttendanceRecord,
+  AttendanceStatus,
+} from '../../types';
 import {
   matchesMultiFieldSearch,
   sortData,
@@ -46,6 +55,9 @@ interface AthletesTabProps {
   onBulkDelete?: (ids: string[]) => void;
   onAthletesLoaded?: (athletes: Athlete[]) => void;
   currentRole: UserRole;
+  onAddAttendance?: (record: AttendanceRecord) => void;
+  onBulkAddAttendance?: (records: AttendanceRecord[]) => void;
+  attendanceRecords?: AttendanceRecord[];
 }
 
 export const AthletesTab: React.FC<AthletesTabProps> = ({
@@ -56,12 +68,18 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
   onBulkDelete,
   onAthletesLoaded,
   currentRole,
+  onAddAttendance,
+  onBulkAddAttendance,
+  attendanceRecords,
 }) => {
   // Real-time Supabase State
   const [athletesData, setAthletesData] = useState<Athlete[]>(athletes || []);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [attendanceToast, setAttendanceToast] = useState<string | null>(null);
+
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -107,6 +125,66 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
 
   // Allow edit for all roles except read-only Publik
   const canEdit = currentRole !== 'Publik';
+
+  // Quick helper to check athlete attendance today
+  const getAthleteTodayAttendance = (athleteId: string) => {
+    if (!attendanceRecords) return null;
+    return attendanceRecords.find((r) => r.personId === athleteId && r.date === todayStr);
+  };
+
+  // Bulk mark attendance from Action Bar in AthletesTab
+  const handleBulkMarkAttendance = (status: AttendanceStatus) => {
+    if (selectedIds.length === 0) return;
+    const selectedAthletes = athletesData.filter((a) => selectedIds.includes(a.id));
+    const newRecords: AttendanceRecord[] = selectedAthletes.map((ath) => ({
+      id: `ATT-ATH-${Date.now()}-${ath.id}`,
+      personId: ath.id,
+      personName: ath.name,
+      personType: 'Atlet',
+      trainingCategory: ath.trainingCategory,
+      date: todayStr,
+      status,
+      sessionTime: '14:00 - 17:00 WIB',
+      scannedViaQr: false,
+    }));
+
+    if (onBulkAddAttendance) {
+      onBulkAddAttendance(newRecords);
+    } else if (onAddAttendance) {
+      newRecords.forEach((r) => onAddAttendance(r));
+    }
+
+    setAttendanceToast(`✓ Presensi "${status}" berhasil dicatat untuk ${selectedAthletes.length} atlet hari ini (${todayStr})!`);
+    setSelectedIds([]);
+    setTimeout(() => setAttendanceToast(null), 3500);
+  };
+
+  // Single click quick attendance from row
+  const handleQuickMarkAttendance = (
+    athleteId: string,
+    athleteName: string,
+    category: TrainingCategory,
+    status: AttendanceStatus
+  ) => {
+    const rec: AttendanceRecord = {
+      id: `ATT-ATH-${Date.now()}-${athleteId}`,
+      personId: athleteId,
+      personName: athleteName,
+      personType: 'Atlet',
+      trainingCategory: category,
+      date: todayStr,
+      status,
+      sessionTime: '14:00 - 17:00 WIB',
+      scannedViaQr: false,
+    };
+
+    if (onAddAttendance) {
+      onAddAttendance(rec);
+    }
+
+    setAttendanceToast(`✓ Presensi "${status}" dicatat untuk atlet ${athleteName}!`);
+    setTimeout(() => setAttendanceToast(null), 2500);
+  };
 
   // Sync parent prop if updated
   useEffect(() => {
@@ -602,17 +680,53 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             {selectedIds.length > 0 && canEdit && (
-              <button
-                id="btn-bulk-delete-athletes"
-                onClick={handleBulkDeleteClick}
-                disabled={isLoading}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-500/30 rounded-lg text-xs font-semibold transition disabled:opacity-50"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Hapus Terpilih ({selectedIds.length})</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-1.5 bg-emerald-950/80 border border-emerald-500/50 p-1.5 rounded-lg shadow-sm">
+                <span className="text-[11px] font-bold text-emerald-300 px-1.5 flex items-center space-x-1">
+                  <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Action Bar ({selectedIds.length} Atlet):</span>
+                </span>
+                <button
+                  id="btn-bulk-attend-hadir"
+                  onClick={() => handleBulkMarkAttendance('Hadir')}
+                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold transition flex items-center space-x-1 shadow"
+                  title="Tandai Hadir hari ini untuk semua atlet yang dipilih"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>✓ Tandai Hadir ({selectedIds.length})</span>
+                </button>
+                <button
+                  onClick={() => handleBulkMarkAttendance('Izin')}
+                  className="px-2 py-1 bg-blue-600/80 hover:bg-blue-600 text-white rounded text-xs font-semibold transition"
+                  title="Tandai Izin"
+                >
+                  Izin
+                </button>
+                <button
+                  onClick={() => handleBulkMarkAttendance('Sakit')}
+                  className="px-2 py-1 bg-amber-600/80 hover:bg-amber-600 text-white rounded text-xs font-semibold transition"
+                  title="Tandai Sakit"
+                >
+                  Sakit
+                </button>
+                <button
+                  onClick={() => handleBulkMarkAttendance('Alpa')}
+                  className="px-2 py-1 bg-red-600/80 hover:bg-red-600 text-white rounded text-xs font-semibold transition"
+                  title="Tandai Alpa"
+                >
+                  Alpa
+                </button>
+                <button
+                  id="btn-bulk-delete-athletes"
+                  onClick={handleBulkDeleteClick}
+                  disabled={isLoading}
+                  className="flex items-center space-x-1 px-2 py-1 bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-500/30 rounded text-xs font-semibold transition disabled:opacity-50 ml-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Hapus</span>
+                </button>
+              </div>
             )}
 
             <button
@@ -637,6 +751,13 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
             )}
           </div>
         </div>
+
+        {/* Feedback Alert for Attendance */}
+        {attendanceToast && (
+          <div className="p-2.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-lg text-xs font-bold text-center animate-in fade-in">
+            {attendanceToast}
+          </div>
+        )}
 
         {/* Filters Row */}
         <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80 text-xs">
@@ -925,6 +1046,37 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
                       </td>
                       <td className="p-3 text-center">
                         <div className="flex items-center justify-center space-x-1.5">
+                          {/* Tombol Cepat Hadir Hari Ini */}
+                          {canEdit && (() => {
+                            const todayAtt = getAthleteTodayAttendance(athlete.id);
+                            return (
+                              <button
+                                id={`btn-attend-${athlete.id}`}
+                                onClick={() =>
+                                  handleQuickMarkAttendance(
+                                    athlete.id,
+                                    athlete.name,
+                                    athlete.trainingCategory,
+                                    'Hadir'
+                                  )
+                                }
+                                className={`inline-flex items-center space-x-1 px-2 py-1 rounded-md text-xs font-bold transition ${
+                                  todayAtt?.status === 'Hadir'
+                                    ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/40'
+                                    : 'bg-emerald-600/15 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30'
+                                }`}
+                                title={
+                                  todayAtt
+                                    ? `Presensi hari ini: ${todayAtt.status}. Klik untuk perbarui Hadir.`
+                                    : `Tandai Hadir hari ini (${todayStr})`
+                                }
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>{todayAtt?.status === 'Hadir' ? 'Hadir ✓' : '+ Hadir'}</span>
+                              </button>
+                            );
+                          })()}
+
                           {/* Tombol Edit */}
                           <button
                             id={`btn-edit-${athlete.id}`}
@@ -1016,6 +1168,58 @@ export const AthletesTab: React.FC<AthletesTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* FLOATING ACTION DOCK (PRESENSI & AKSI MASSAL ATLET TERPILIH) */}
+      {/* ========================================================================= */}
+      {selectedIds.length > 0 && canEdit && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 border border-emerald-500/50 shadow-2xl shadow-black/80 rounded-2xl p-3 flex flex-wrap items-center gap-3 backdrop-blur-md animate-in slide-in-from-bottom">
+          <div className="flex items-center space-x-2 text-xs font-bold text-white px-2">
+            <UserCheck className="w-4 h-4 text-emerald-400" />
+            <span>{selectedIds.length} Atlet Terpilih</span>
+          </div>
+          <div className="h-5 w-px bg-slate-700 hidden sm:block" />
+          <button
+            onClick={() => handleBulkMarkAttendance('Hadir')}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>✓ Tandai Hadir ({selectedIds.length})</span>
+          </button>
+          <button
+            onClick={() => handleBulkMarkAttendance('Izin')}
+            className="px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold transition"
+          >
+            Izin
+          </button>
+          <button
+            onClick={() => handleBulkMarkAttendance('Sakit')}
+            className="px-3 py-1.5 bg-amber-600/80 hover:bg-amber-600 text-white rounded-lg text-xs font-semibold transition"
+          >
+            Sakit
+          </button>
+          <button
+            onClick={() => handleBulkMarkAttendance('Alpa')}
+            className="px-3 py-1.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg text-xs font-semibold transition"
+          >
+            Alpa
+          </button>
+          <button
+            onClick={handleBulkDeleteClick}
+            disabled={isLoading}
+            className="px-2.5 py-1.5 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded-lg text-xs font-semibold transition flex items-center space-x-1"
+          >
+            <Trash2 className="w-3 h-3" />
+            <span>Hapus</span>
+          </button>
+          <button
+            onClick={() => setSelectedIds([])}
+            className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white"
+          >
+            Batal
+          </button>
+        </div>
+      )}
 
       {/* Modal: Add/Edit Athlete */}
       {isFormModalOpen && (

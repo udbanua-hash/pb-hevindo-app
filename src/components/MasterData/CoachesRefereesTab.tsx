@@ -1,7 +1,19 @@
 import React, { useState } from 'react';
 import { Coach, Referee, UserRole } from '../../types';
 import { formatRupiah } from '../../utils/helpers';
-import { UserCheck, ShieldCheck, Plus, Edit2, Trash2, Phone, Mail, Award, Calendar, DollarSign } from 'lucide-react';
+import {
+  UserCheck,
+  ShieldCheck,
+  Plus,
+  Edit2,
+  Trash2,
+  Phone,
+  Award,
+  Calendar,
+  DollarSign,
+  AlertTriangle,
+  CheckCircle2,
+} from 'lucide-react';
 
 interface CoachesRefereesTabProps {
   coaches: Coach[];
@@ -27,381 +39,598 @@ export const CoachesRefereesTab: React.FC<CoachesRefereesTabProps> = ({
   currentRole,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'coaches' | 'referees'>('coaches');
-  const canEdit = currentRole === 'Admin' || currentRole === 'Operator';
 
-  // Coach modal
-  const [isCoachModalOpen, setIsCoachModalOpen] = useState(false);
-  const [editingCoach, setEditingCoach] = useState<Coach | null>(null);
-  const [coachForm, setCoachForm] = useState<Partial<Coach>>({
+  const canEdit =
+    currentRole === 'Master Admin' ||
+    currentRole === 'Admin PB Hevindo' ||
+    currentRole === 'Admin' ||
+    currentRole === 'Operator';
+
+  // Unified Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Form Fields per specification:
+  // Nama, Peran [Pelatih/Wasit], Spesialisasi/Kategori, Lisensi, No. HP, Honor Per Sesi, Honor Bulanan
+  const [formData, setFormData] = useState({
     name: '',
+    role: 'Pelatih' as 'Pelatih' | 'Wasit',
     category: 'Tunggal',
+    license: 'BWF Level 1',
     phone: '',
-    email: '',
     honorPerSession: 150000,
     monthlyHonor: 4500000,
     scheduleNotes: '',
     status: 'Aktif',
   });
 
-  // Referee modal
-  const [isRefereeModalOpen, setIsRefereeModalOpen] = useState(false);
-  const [editingReferee, setEditingReferee] = useState<Referee | null>(null);
-  const [refereeForm, setRefereeForm] = useState<Partial<Referee>>({
+  // Delete Confirmation Modal state
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    isOpen: boolean;
+    id: string;
+    name: string;
+    role: 'Pelatih' | 'Wasit';
+  }>({
+    isOpen: false,
+    id: '',
     name: '',
-    certification: 'Sertifikasi PBSI Nasional',
-    licenseNumber: '',
-    phone: '',
-    assignedMatchesCount: 0,
-    status: 'Tersedia',
+    role: 'Pelatih',
   });
 
-  const handleOpenCoachModal = (coach?: Coach) => {
-    if (coach) {
-      setEditingCoach(coach);
-      setCoachForm({ ...coach });
-    } else {
-      setEditingCoach(null);
-      setCoachForm({
-        id: `COA-00${coaches.length + 1}`,
-        name: '',
-        category: 'Tunggal',
-        phone: '',
-        email: '',
-        honorPerSession: 150000,
-        monthlyHonor: 4500000,
-        scheduleNotes: '',
-        status: 'Aktif',
-      });
-    }
-    setIsCoachModalOpen(true);
+  const handleOpenAddModal = (defaultRole?: 'Pelatih' | 'Wasit') => {
+    const role = defaultRole || (activeSubTab === 'coaches' ? 'Pelatih' : 'Wasit');
+    setIsEditing(false);
+    setEditingId(null);
+    setFormData({
+      name: '',
+      role: role,
+      category: role === 'Pelatih' ? 'Tunggal' : 'Sertifikasi Wasit',
+      license: role === 'Pelatih' ? 'BWF Level 1' : 'Sertifikasi PBSI Nasional',
+      phone: '',
+      honorPerSession: role === 'Pelatih' ? 150000 : 200000,
+      monthlyHonor: role === 'Pelatih' ? 4500000 : 0,
+      scheduleNotes: '',
+      status: role === 'Pelatih' ? 'Aktif' : 'Tersedia',
+    });
+    setIsModalOpen(true);
   };
 
-  const handleSaveCoach = (e: React.FormEvent) => {
+  const handleOpenEditCoach = (coach: Coach) => {
+    setIsEditing(true);
+    setEditingId(coach.id);
+    setFormData({
+      name: coach.name,
+      role: 'Pelatih',
+      category: coach.category,
+      license: 'BWF Level 1',
+      phone: coach.phone || '',
+      honorPerSession: coach.honorPerSession || 0,
+      monthlyHonor: coach.monthlyHonor || 0,
+      scheduleNotes: coach.scheduleNotes || '',
+      status: coach.status || 'Aktif',
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditReferee = (ref: Referee) => {
+    setIsEditing(true);
+    setEditingId(ref.id);
+    setFormData({
+      name: ref.name,
+      role: 'Wasit',
+      category: 'Sertifikasi Wasit',
+      license: ref.certification || 'Sertifikasi PBSI Nasional',
+      phone: ref.phone || '',
+      honorPerSession: 200000,
+      monthlyHonor: 0,
+      scheduleNotes: `Total ${ref.assignedMatchesCount || 0} Pertandingan`,
+      status: ref.status || 'Tersedia',
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!coachForm.name) return;
+    if (!formData.name.trim()) return;
 
-    const payload: Coach = {
-      id: editingCoach ? editingCoach.id : coachForm.id || `COA-${Date.now()}`,
-      name: coachForm.name,
-      category: coachForm.category as any,
-      phone: coachForm.phone || '-',
-      email: coachForm.email || '-',
-      honorPerSession: Number(coachForm.honorPerSession) || 0,
-      monthlyHonor: Number(coachForm.monthlyHonor) || 0,
-      scheduleNotes: coachForm.scheduleNotes || '-',
-      status: coachForm.status as any,
-    };
+    if (formData.role === 'Pelatih') {
+      const payload: Coach = {
+        id: isEditing && editingId ? editingId : `COA-${Date.now().toString().slice(-4)}`,
+        name: formData.name.trim(),
+        category: formData.category as any,
+        phone: formData.phone.trim() || '-',
+        email: `${formData.name.toLowerCase().replace(/\s+/g, '.')}@pbhevindo.com`,
+        honorPerSession: Number(formData.honorPerSession) || 0,
+        monthlyHonor: Number(formData.monthlyHonor) || 0,
+        scheduleNotes: formData.scheduleNotes || 'Jadwal Reguler PB Hevindo',
+        status: (formData.status === 'Nonaktif' ? 'Nonaktif' : 'Aktif') as any,
+      };
 
-    if (editingCoach) onUpdateCoach(payload);
-    else onAddCoach(payload);
-    setIsCoachModalOpen(false);
-  };
-
-  const handleOpenRefereeModal = (ref?: Referee) => {
-    if (ref) {
-      setEditingReferee(ref);
-      setRefereeForm({ ...ref });
+      if (isEditing) {
+        onUpdateCoach(payload);
+      } else {
+        onAddCoach(payload);
+      }
     } else {
-      setEditingReferee(null);
-      setRefereeForm({
-        id: `REF-00${referees.length + 1}`,
-        name: '',
-        certification: 'Sertifikasi PBSI Nasional',
+      const payload: Referee = {
+        id: isEditing && editingId ? editingId : `REF-${Date.now().toString().slice(-4)}`,
+        name: formData.name.trim(),
+        certification: formData.license as any,
         licenseNumber: `PBSI-WST-${Math.floor(1000 + Math.random() * 9000)}`,
-        phone: '',
+        phone: formData.phone.trim() || '-',
         assignedMatchesCount: 0,
-        status: 'Tersedia',
-      });
+        status: (formData.status === 'Bertugas' ? 'Bertugas' : formData.status === 'Nonaktif' ? 'Nonaktif' : 'Tersedia') as any,
+      };
+
+      if (isEditing) {
+        onUpdateReferee(payload);
+      } else {
+        onAddReferee(payload);
+      }
     }
-    setIsRefereeModalOpen(true);
+
+    setIsModalOpen(false);
   };
 
-  const handleSaveReferee = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!refereeForm.name) return;
-
-    const payload: Referee = {
-      id: editingReferee ? editingReferee.id : refereeForm.id || `REF-${Date.now()}`,
-      name: refereeForm.name,
-      certification: refereeForm.certification as any,
-      licenseNumber: refereeForm.licenseNumber || '-',
-      phone: refereeForm.phone || '-',
-      assignedMatchesCount: Number(refereeForm.assignedMatchesCount) || 0,
-      status: refereeForm.status as any,
-    };
-
-    if (editingReferee) onUpdateReferee(payload);
-    else onAddReferee(payload);
-    setIsRefereeModalOpen(false);
+  const confirmDelete = () => {
+    if (deleteConfirm.role === 'Pelatih') {
+      onDeleteCoach(deleteConfirm.id);
+    } else {
+      onDeleteReferee(deleteConfirm.id);
+    }
+    setDeleteConfirm({ isOpen: false, id: '', name: '', role: 'Pelatih' });
   };
 
   return (
-    <div className="space-y-4">
-      {/* Sub Navigation Switcher */}
-      <div className="flex items-center justify-between bg-slate-850 p-2 rounded-xl border border-slate-800">
-        <div className="flex space-x-2">
+    <div className="space-y-5">
+      {/* Action Header & Sub Navigation */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900 p-3 rounded-2xl border border-slate-800 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
           <button
+            id="tab-coaches-list"
             onClick={() => setActiveSubTab('coaches')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold transition ${
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
               activeSubTab === 'coaches'
-                ? 'bg-emerald-600 text-white shadow-md'
+                ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <UserCheck className="w-4 h-4" />
-            <span>Data Pelatih & Honorarium ({coaches.length})</span>
+            <UserCheck className="w-4 h-4 text-emerald-400" />
+            <span>Data Pelatih & Honor ({coaches.length})</span>
           </button>
 
           <button
+            id="tab-referees-list"
             onClick={() => setActiveSubTab('referees')}
-            className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold transition ${
+            className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold transition ${
               activeSubTab === 'referees'
-                ? 'bg-emerald-600 text-white shadow-md'
+                ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-900/30'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
-            <ShieldCheck className="w-4 h-4" />
-            <span>Data Wasit & Sertifikasi PBSI ({referees.length})</span>
+            <ShieldCheck className="w-4 h-4 text-cyan-400" />
+            <span>Data Wasit & Lisensi PBSI ({referees.length})</span>
           </button>
         </div>
 
         {canEdit && (
           <button
-            onClick={() =>
-              activeSubTab === 'coaches' ? handleOpenCoachModal() : handleOpenRefereeModal()
-            }
-            className="flex items-center space-x-1 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold transition"
+            id="btn-add-coach-referee"
+            onClick={() => handleOpenAddModal()}
+            className="flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-900/40 shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>
-              Tambah {activeSubTab === 'coaches' ? 'Pelatih' : 'Wasit'}
-            </span>
+            <Plus className="w-4 h-4" />
+            <span>Tambah Pelatih / Wasit</span>
           </button>
         )}
       </div>
 
-      {/* COACHES VIEW */}
+      {/* COACHES SUB-TAB */}
       {activeSubTab === 'coaches' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {coaches.map((coach) => (
-            <div
-              key={coach.id}
-              className="bg-slate-850 p-5 rounded-xl border border-slate-800 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-wider block">
-                      {coach.id}
-                    </span>
-                    <h4 className="font-bold text-white text-base mt-0.5">{coach.name}</h4>
-                    <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
-                      Spesialisasi: {coach.category}
-                    </span>
-                  </div>
-                  {canEdit && (
-                    <div className="flex items-center space-x-1">
-                      <button
-                        onClick={() => handleOpenCoachModal(coach)}
-                        className="p-1 text-slate-400 hover:text-blue-400"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Hapus pelatih ${coach.name}?`)) onDeleteCoach(coach.id);
-                        }}
-                        className="p-1 text-slate-400 hover:text-red-400"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+              <span>Daftar Pelatih Resmi PB HEVINDO</span>
+              <span className="text-xs font-normal text-slate-400">
+                (Sinkron Realtime ke Tabel Supabase pelatih_wasit)
+              </span>
+            </h3>
+          </div>
 
-                <div className="mt-4 space-y-2 text-xs text-slate-300">
-                  <div className="flex items-center space-x-2">
-                    <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{coach.phone}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Jadwal: {coach.scheduleNotes}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Honorarium Breakdown */}
-              <div className="mt-4 pt-3 border-t border-slate-800 grid grid-cols-2 gap-2 text-xs bg-slate-900/50 p-2.5 rounded-lg">
-                <div>
-                  <span className="text-[10px] text-slate-400 block">Honor Per Sesi Latihan</span>
-                  <span className="font-bold text-amber-300">{formatRupiah(coach.honorPerSession)}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block">Estimasi Bulanan</span>
-                  <span className="font-bold text-emerald-400">{formatRupiah(coach.monthlyHonor)}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* REFEREES VIEW */}
-      {activeSubTab === 'referees' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {referees.map((ref) => (
-            <div
-              key={ref.id}
-              className="bg-slate-850 p-5 rounded-xl border border-slate-800 flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider block">
-                      {ref.id} • {ref.licenseNumber}
-                    </span>
-                    <h4 className="font-bold text-white text-base mt-0.5">{ref.name}</h4>
-                    <span className="inline-flex items-center space-x-1 mt-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/30">
-                      <Award className="w-3 h-3 text-amber-400" />
-                      <span>{ref.certification}</span>
-                    </span>
-                  </div>
-                  {canEdit && (
-                    <div className="flex items-center space-x-1">
-                      <button
-                        onClick={() => handleOpenRefereeModal(ref)}
-                        className="p-1 text-slate-400 hover:text-blue-400"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Hapus wasit ${ref.name}?`)) onDeleteReferee(ref.id);
-                        }}
-                        className="p-1 text-slate-400 hover:text-red-400"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 space-y-2 text-xs text-slate-300">
-                  <div className="flex items-center space-x-2">
-                    <Phone className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{ref.phone}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-slate-400">Total Penugasan Turnamen:</span>
-                    <span className="font-bold text-white">{ref.assignedMatchesCount} Pertandingan</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-400">Status Penugasan:</span>
-                <span
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                    ref.status === 'Bertugas'
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse'
-                      : 'bg-slate-800 text-slate-300'
-                  }`}
+          {coaches.length === 0 ? (
+            <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-2xl">
+              <UserCheck className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+              <p className="text-slate-400 text-sm">Belum ada data pelatih di database Supabase.</p>
+              {canEdit && (
+                <button
+                  onClick={() => handleOpenAddModal('Pelatih')}
+                  className="mt-3 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold"
                 >
-                  {ref.status}
-                </span>
-              </div>
+                  + Tambah Pelatih Pertama
+                </button>
+              )}
             </div>
-          ))}
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {coaches.map((coach) => (
+                <div
+                  key={coach.id}
+                  id={`card-coach-${coach.id}`}
+                  className="bg-slate-900 border border-slate-800 hover:border-emerald-500/40 transition rounded-2xl p-5 flex flex-col justify-between shadow-md"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-wider block">
+                          {coach.id}
+                        </span>
+                        <h4 className="font-black text-white text-base mt-0.5">{coach.name}</h4>
+                        <span className="inline-block mt-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                          Spesialisasi: {coach.category}
+                        </span>
+                      </div>
+
+                      {canEdit && (
+                        <div className="flex items-center space-x-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700">
+                          <button
+                            onClick={() => handleOpenEditCoach(coach)}
+                            className="p-1.5 text-slate-400 hover:text-emerald-300 hover:bg-slate-700 rounded transition"
+                            title="Edit Data Pelatih"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() =>
+                              setDeleteConfirm({
+                                isOpen: true,
+                                id: coach.id,
+                                name: coach.name,
+                                role: 'Pelatih',
+                              })
+                            }
+                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition"
+                            title="Hapus Pelatih"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5 text-xs text-slate-300 pt-1">
+                      <div className="flex items-center space-x-2 text-slate-400">
+                        <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="text-white font-mono">{coach.phone || '-'}</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-slate-400">
+                        <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="truncate">{coach.scheduleNotes || 'Reguler PB Hevindo'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Honorarium Details */}
+                  <div className="mt-4 pt-3 border-t border-slate-800 grid grid-cols-2 gap-2 text-xs bg-slate-950/60 p-3 rounded-xl">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">Honor Per Sesi</span>
+                      <span className="font-bold text-amber-300 font-mono">
+                        {formatRupiah(coach.honorPerSession)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">Honor Bulanan</span>
+                      <span className="font-bold text-emerald-400 font-mono">
+                        {formatRupiah(coach.monthlyHonor)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Modal Add/Edit Coach */}
-      {isCoachModalOpen && (
+      {/* REFEREES SUB-TAB */}
+      {activeSubTab === 'referees' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+              <span>Daftar Wasit Resmi PBSI / Turnamen</span>
+              <span className="text-xs font-normal text-slate-400">
+                (Sinkron Realtime ke Tabel Supabase pelatih_wasit)
+              </span>
+            </h3>
+          </div>
+
+          {referees.length === 0 ? (
+            <div className="text-center py-12 bg-slate-900 border border-slate-800 rounded-2xl">
+              <ShieldCheck className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+              <p className="text-slate-400 text-sm">Belum ada data wasit di database Supabase.</p>
+              {canEdit && (
+                <button
+                  onClick={() => handleOpenAddModal('Wasit')}
+                  className="mt-3 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold"
+                >
+                  + Tambah Wasit Pertama
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {referees.map((ref) => (
+                <div
+                  key={ref.id}
+                  id={`card-referee-${ref.id}`}
+                  className="bg-slate-900 border border-slate-800 hover:border-cyan-500/40 transition rounded-2xl p-5 flex flex-col justify-between shadow-md"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider block">
+                          {ref.id} • {ref.licenseNumber}
+                        </span>
+                        <h4 className="font-black text-white text-base mt-0.5">{ref.name}</h4>
+                        <span className="inline-flex items-center space-x-1 mt-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                          <Award className="w-3 h-3 text-cyan-400" />
+                          <span>{ref.certification}</span>
+                        </span>
+                      </div>
+
+                      {canEdit && (
+                        <div className="flex items-center space-x-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700">
+                          <button
+                            onClick={() => handleOpenEditReferee(ref)}
+                            className="p-1.5 text-slate-400 hover:text-cyan-300 hover:bg-slate-700 rounded transition"
+                            title="Edit Data Wasit"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() =>
+                              setDeleteConfirm({
+                                isOpen: true,
+                                id: ref.id,
+                                name: ref.name,
+                                role: 'Wasit',
+                              })
+                            }
+                            className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded transition"
+                            title="Hapus Wasit"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5 text-xs text-slate-300 pt-1">
+                      <div className="flex items-center space-x-2 text-slate-400">
+                        <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span className="text-white font-mono">{ref.phone || '-'}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-slate-400 bg-slate-950/60 p-2.5 rounded-xl">
+                        <span>Total Penugasan Turnamen:</span>
+                        <span className="font-bold text-white font-mono">
+                          {ref.assignedMatchesCount || 0} Pertandingan
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+                    <span className="text-slate-400">Status Penugasan:</span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        ref.status === 'Bertugas'
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
+                          : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      }`}
+                    >
+                      {ref.status || 'Tersedia'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* UNIFIED MODAL FORM: Tambah / Edit Pelatih & Wasit */}
+      {isModalOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <h4 className="font-bold text-white text-sm">
-              {editingCoach ? 'Edit Pelatih' : 'Tambah Pelatih Klub'}
-            </h4>
-            <form onSubmit={handleSaveCoach} className="space-y-3 text-xs">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
-                <label className="block text-slate-300 mb-1">Nama Lengkap Pelatih *</label>
+                <h4 className="font-black text-white text-base">
+                  {isEditing ? `Edit Record ${formData.role}` : 'Tambah Pelatih / Wasit Baru'}
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Data otomatis disimpan dan di-update ke Supabase tabel <code className="text-emerald-400 font-mono">pelatih_wasit</code>.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white text-sm px-2 py-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
+              {/* Input: Peran [Pelatih / Wasit] */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Peran *</label>
+                  <select
+                    value={formData.role}
+                    disabled={isEditing}
+                    onChange={(e) => {
+                      const newRole = e.target.value as 'Pelatih' | 'Wasit';
+                      setFormData({
+                        ...formData,
+                        role: newRole,
+                        category: newRole === 'Pelatih' ? 'Tunggal' : 'Sertifikasi Wasit',
+                        license: newRole === 'Pelatih' ? 'BWF Level 1' : 'Sertifikasi PBSI Nasional',
+                        honorPerSession: newRole === 'Pelatih' ? 150000 : 200000,
+                        monthlyHonor: newRole === 'Pelatih' ? 4500000 : 0,
+                      });
+                    }}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-medium focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="Pelatih">Pelatih (Coach)</option>
+                    <option value="Wasit">Wasit (Referee / Umpire)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Status Record</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white font-medium focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="Aktif">Aktif / Tersedia</option>
+                    <option value="Bertugas">Bertugas di Pertandingan</option>
+                    <option value="Nonaktif">Nonaktif</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Input: Nama */}
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Nama Lengkap *</label>
                 <input
                   type="text"
                   required
-                  value={coachForm.name}
-                  onChange={(e) => setCoachForm({ ...coachForm, name: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
+                  placeholder="Contoh: Coach Hendra Setiawan / Wasit Bambang..."
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>
+
+              {/* Input: Spesialisasi / Kategori & Lisensi */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-300 mb-1">Kategori Spesialisasi</label>
-                  <select
-                    value={coachForm.category}
-                    onChange={(e) => setCoachForm({ ...coachForm, category: e.target.value as any })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                  >
-                    <option value="Tunggal">Tunggal</option>
-                    <option value="Ganda">Ganda</option>
-                    <option value="Fisik">Fisik & Conditioning</option>
-                    <option value="Pembibitan">Pembibitan (Usia Dini)</option>
-                    <option value="Pusdiklat Head Coach">Pusdiklat Head Coach</option>
-                  </select>
+                  <label className="block text-slate-300 mb-1 font-semibold">
+                    {formData.role === 'Pelatih' ? 'Spesialisasi / Kategori' : 'Kategori Wasit'}
+                  </label>
+                  {formData.role === 'Pelatih' ? (
+                    <select
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      <option value="Tunggal">Tunggal (Singles)</option>
+                      <option value="Ganda">Ganda (Doubles)</option>
+                      <option value="Fisik">Fisik & Stamina</option>
+                      <option value="Pembibitan">Pembibitan (Usia Dini)</option>
+                      <option value="Pusdiklat Head Coach">Pusdiklat Head Coach</option>
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      placeholder="Wasit PBSI Utama"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
+                    />
+                  )}
                 </div>
+
                 <div>
-                  <label className="block text-slate-300 mb-1">No. WhatsApp</label>
-                  <input
-                    type="text"
-                    value={coachForm.phone}
-                    onChange={(e) => setCoachForm({ ...coachForm, phone: e.target.value })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                  />
+                  <label className="block text-slate-300 mb-1 font-semibold">Lisensi / Sertifikat</label>
+                  {formData.role === 'Pelatih' ? (
+                    <select
+                      value={formData.license}
+                      onChange={(e) => setFormData({ ...formData, license: e.target.value })}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      <option value="BWF Level 1">BWF Level 1</option>
+                      <option value="BWF Level 2">BWF Level 2</option>
+                      <option value="Pelatih PBSI Daerah">Pelatih PBSI Daerah</option>
+                      <option value="Pelatih PBSI Nasional">Pelatih PBSI Nasional</option>
+                      <option value="Mantan Atlet Nasional">Mantan Atlet Nasional</option>
+                    </select>
+                  ) : (
+                    <select
+                      value={formData.license}
+                      onChange={(e) => setFormData({ ...formData, license: e.target.value })}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
+                    >
+                      <option value="Sertifikasi Kota/Kabupaten">Sertifikasi Kota/Kabupaten</option>
+                      <option value="Sertifikasi PBSI Provinsi">Sertifikasi PBSI Provinsi</option>
+                      <option value="Sertifikasi PBSI Nasional">Sertifikasi PBSI Nasional</option>
+                      <option value="BWF Accredited">BWF Accredited</option>
+                    </select>
+                  )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 mb-1">Honor Per Sesi (Rp)</label>
-                  <input
-                    type="number"
-                    value={coachForm.honorPerSession}
-                    onChange={(e) => setCoachForm({ ...coachForm, honorPerSession: Number(e.target.value) })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 mb-1">Estimasi Bulanan (Rp)</label>
-                  <input
-                    type="number"
-                    value={coachForm.monthlyHonor}
-                    onChange={(e) => setCoachForm({ ...coachForm, monthlyHonor: Number(e.target.value) })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                  />
-                </div>
-              </div>
+
+              {/* Input: No. HP */}
               <div>
-                <label className="block text-slate-300 mb-1">Catatan Jadwal</label>
+                <label className="block text-slate-300 mb-1 font-semibold">No. HP / WhatsApp *</label>
                 <input
                   type="text"
-                  value={coachForm.scheduleNotes}
-                  onChange={(e) => setCoachForm({ ...coachForm, scheduleNotes: e.target.value })}
-                  placeholder="Senin–Kamis 14.00–17.00 di Hevindo 1..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
+                  placeholder="0812-xxxx-xxxx"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
                 />
               </div>
-              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+
+              {/* Input: Honor Per Sesi & Honor Bulanan */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Honor Per Sesi (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.honorPerSession}
+                    onChange={(e) => setFormData({ ...formData, honorPerSession: Number(e.target.value) })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 mb-1 font-semibold">Honor Bulanan (Rp)</label>
+                  <input
+                    type="number"
+                    value={formData.monthlyHonor}
+                    onChange={(e) => setFormData({ ...formData, monthlyHonor: Number(e.target.value) })}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Catatan / Jadwal */}
+              <div>
+                <label className="block text-slate-300 mb-1 font-semibold">Catatan Tambahan / Jadwal</label>
+                <input
+                  type="text"
+                  placeholder="Contoh: Bertugas sesi pagi di GOR Hevindo 1..."
+                  value={formData.scheduleNotes}
+                  onChange={(e) => setFormData({ ...formData, scheduleNotes: e.target.value })}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-white focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsCoachModalOpen(false)}
-                  className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded text-xs"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-emerald-600 text-white rounded text-xs font-semibold"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-lg shadow-emerald-900/40"
                 >
-                  Simpan Pelatih
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isEditing ? 'Simpan Perubahan ke Supabase' : 'Tambahkan ke Supabase'}</span>
                 </button>
               </div>
             </form>
@@ -409,73 +638,33 @@ export const CoachesRefereesTab: React.FC<CoachesRefereesTabProps> = ({
         </div>
       )}
 
-      {/* Modal Add/Edit Referee */}
-      {isRefereeModalOpen && (
+      {/* MODAL KONFIRMASI HAPUS */}
+      {deleteConfirm.isOpen && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
-            <h4 className="font-bold text-white text-sm">
-              {editingReferee ? 'Edit Wasit' : 'Tambah Wasit PBSI'}
-            </h4>
-            <form onSubmit={handleSaveReferee} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-slate-300 mb-1">Nama Lengkap Wasit *</label>
-                <input
-                  type="text"
-                  required
-                  value={refereeForm.name}
-                  onChange={(e) => setRefereeForm({ ...refereeForm, name: e.target.value })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-300 mb-1">Tingkat Sertifikasi PBSI</label>
-                <select
-                  value={refereeForm.certification}
-                  onChange={(e) => setRefereeForm({ ...refereeForm, certification: e.target.value as any })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                >
-                  <option value="Sertifikasi Kota/Kabupaten">Sertifikasi Kota/Kabupaten</option>
-                  <option value="Sertifikasi PBSI Provinsi">Sertifikasi PBSI Provinsi</option>
-                  <option value="Sertifikasi PBSI Nasional">Sertifikasi PBSI Nasional</option>
-                  <option value="BWF Accredited">BWF Accredited</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-300 mb-1">No. Lisensi / Sertifikat</label>
-                  <input
-                    type="text"
-                    value={refereeForm.licenseNumber}
-                    onChange={(e) => setRefereeForm({ ...refereeForm, licenseNumber: e.target.value })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 mb-1">No. Kontak / WA</label>
-                  <input
-                    type="text"
-                    value={refereeForm.phone}
-                    onChange={(e) => setRefereeForm({ ...refereeForm, phone: e.target.value })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-white"
-                  />
-                </div>
-              </div>
-              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsRefereeModalOpen(false)}
-                  className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded text-xs"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-cyan-600 text-white rounded text-xs font-semibold"
-                >
-                  Simpan Wasit
-                </button>
-              </div>
-            </form>
+          <div className="bg-slate-900 border border-red-500/30 rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center space-x-3 text-red-400">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h4 className="font-bold text-white text-sm">Konfirmasi Hapus Record</h4>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Apakah Anda yakin ingin menghapus {deleteConfirm.role}{' '}
+              <strong className="text-white">"{deleteConfirm.name}"</strong>?
+              Data akan dihapus secara permanen dari Supabase.
+            </p>
+            <div className="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setDeleteConfirm({ isOpen: false, id: '', name: '', role: 'Pelatih' })}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold"
+              >
+                Batal
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition"
+              >
+                Hapus Permanen
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -22,6 +22,7 @@ import {
   UserRole,
   PortalType,
   Building,
+  TrainingCategory,
 } from './types';
 import {
   initialAthletes,
@@ -58,11 +59,26 @@ import {
   fetchAthletesFromSupabase,
   saveAthleteToSupabase,
   deleteAthleteFromSupabase,
-  fetchKantinTransaksiFromSupabase,
-  saveKantinTransaksiToSupabase,
+  fetchPelatihWasitFromSupabase,
+  savePelatihWasitToSupabase,
+  deletePelatihWasitFromSupabase,
+  fetchGedungLapanganFromSupabase,
+  saveGedungToSupabase,
+  deleteGedungFromSupabase,
   fetchSewaLapanganFromSupabase,
   saveSewaLapanganToSupabase,
   deleteSewaLapanganFromSupabase,
+  fetchKantinTransaksiFromSupabase,
+  saveKantinTransaksiToSupabase,
+  fetchJadwalLatihanFromSupabase,
+  saveJadwalLatihanToSupabase,
+  deleteJadwalLatihanFromSupabase,
+  fetchIuranBulananFromSupabase,
+  saveIuranBulananToSupabase,
+  bulkSaveIuranBulananToSupabase,
+  fetchAbsensiFromSupabase,
+  saveAbsensiToSupabase,
+  bulkSaveAbsensiToSupabase,
   isSupabaseConfigured,
 } from './services/supabase';
 
@@ -195,7 +211,7 @@ export default function App() {
 
   const syncWithSupabase = async () => {
     if (!isSupabaseConfigured()) return;
-    setSupabaseStatus((prev) => ({ ...prev, syncing: true, message: 'Menyinkronkan dengan Supabase...' }));
+    setSupabaseStatus((prev) => ({ ...prev, syncing: true, message: 'Menyinkronkan data dengan Supabase...' }));
     try {
       // 1. Fetch data atlet dari tabel 'atlet'
       const dbAthletes = await fetchAthletesFromSupabase();
@@ -203,13 +219,46 @@ export default function App() {
         setAthletes(dbAthletes);
       }
 
-      // 2. Fetch data transaksi kantin dari tabel 'kantin_transaksi'
+      // 2. Fetch Pelatih & Wasit dari tabel 'pelatih_wasit' / 'pelatih'
+      const { coaches: dbCoaches, referees: dbReferees } = await fetchPelatihWasitFromSupabase();
+      if (dbCoaches.length > 0) {
+        setCoaches(dbCoaches);
+      }
+      if (dbReferees.length > 0) {
+        setReferees(dbReferees);
+      }
+
+      // 3. Fetch Gedung & Lapangan dari tabel 'gedung' dan 'lapangan'
+      const dbBuildings = await fetchGedungLapanganFromSupabase();
+      if (dbBuildings.length > 0) {
+        setBuildings(dbBuildings);
+      }
+
+      // 4. Fetch Jadwal Latihan dari tabel 'jadwal_latihan'
+      const dbSchedules = await fetchJadwalLatihanFromSupabase();
+      if (dbSchedules.length > 0) {
+        setSchedules(dbSchedules);
+      }
+
+      // 5. Fetch Iuran Bulanan dari tabel 'iuran_bulanan'
+      const dbDues = await fetchIuranBulananFromSupabase();
+      if (dbDues.length > 0) {
+        setMonthlyDues(dbDues);
+      }
+
+      // 6. Fetch Absensi QR dari tabel 'absensi'
+      const dbAttendance = await fetchAbsensiFromSupabase();
+      if (dbAttendance.length > 0) {
+        setAttendanceRecords(dbAttendance);
+      }
+
+      // 7. Fetch data transaksi kantin dari tabel 'kantin_transaksi'
       const dbSales = await fetchKantinTransaksiFromSupabase();
       if (dbSales.length > 0) {
         setPosSales(dbSales);
       }
 
-      // 3. Fetch data sewa lapangan dari tabel 'sewa_lapangan'
+      // 8. Fetch data sewa lapangan dari tabel 'sewa_lapangan'
       const dbRentals = await fetchSewaLapanganFromSupabase();
       if (dbRentals.length > 0) {
         setCourtRentals(dbRentals);
@@ -220,11 +269,11 @@ export default function App() {
         configured: true,
         syncing: false,
         lastSynced: syncTime,
-        message: 'Tersinkronisasi dengan Supabase (atlet, kantin_transaksi, sewa_lapangan).',
+        message: 'Tersinkronisasi penuh dengan Supabase (Semua modul terhubung).',
       });
       addNotification(
         'Supabase Terhubung',
-        `Data atlet, transaksi kantin, dan sewa lapangan berhasil disinkronkan (${syncTime}).`,
+        `Seluruh modul PB HEVINDO berhasil disinkronkan (${syncTime}).`,
         'success'
       );
     } catch (err: any) {
@@ -310,39 +359,66 @@ export default function App() {
     logAction('HAPUS_KLUB', 'Master Klub', `Menghapus klub ID ${id}`);
   };
 
-  // Master Data: Coaches & Referees
-  const handleAddCoach = (coach: Coach) => {
+  // Master Data: Coaches & Referees (Tersinkronisasi Supabase)
+  const handleAddCoach = async (coach: Coach) => {
     setCoaches((prev) => [...prev, coach]);
+    if (isSupabaseConfigured()) {
+      await savePelatihWasitToSupabase(coach, 'Pelatih');
+    }
     logAction('TAMBAH_PELATIH', 'Master Pelatih', `Menambahkan pelatih ${coach.name}`);
   };
-  const handleUpdateCoach = (coach: Coach) => {
+  const handleUpdateCoach = async (coach: Coach) => {
     setCoaches((prev) => prev.map((c) => (c.id === coach.id ? coach : c)));
+    if (isSupabaseConfigured()) {
+      await savePelatihWasitToSupabase(coach, 'Pelatih');
+    }
   };
-  const handleDeleteCoach = (id: string) => {
+  const handleDeleteCoach = async (id: string) => {
     setCoaches((prev) => prev.filter((c) => c.id !== id));
+    if (isSupabaseConfigured()) {
+      await deletePelatihWasitFromSupabase(id);
+    }
   };
 
-  const handleAddReferee = (ref: Referee) => {
+  const handleAddReferee = async (ref: Referee) => {
     setReferees((prev) => [...prev, ref]);
+    if (isSupabaseConfigured()) {
+      await savePelatihWasitToSupabase(ref, 'Wasit');
+    }
     logAction('TAMBAH_WASIT', 'Master Wasit', `Menambahkan wasit ${ref.name}`);
   };
-  const handleUpdateReferee = (ref: Referee) => {
+  const handleUpdateReferee = async (ref: Referee) => {
     setReferees((prev) => prev.map((r) => (r.id === ref.id ? ref : r)));
+    if (isSupabaseConfigured()) {
+      await savePelatihWasitToSupabase(ref, 'Wasit');
+    }
   };
-  const handleDeleteReferee = (id: string) => {
+  const handleDeleteReferee = async (id: string) => {
     setReferees((prev) => prev.filter((r) => r.id !== id));
+    if (isSupabaseConfigured()) {
+      await deletePelatihWasitFromSupabase(id);
+    }
   };
 
-  // Schedules
-  const handleAddSchedule = (sched: TrainingSchedule) => {
+  // Schedules (Tersinkronisasi Supabase 'jadwal_latihan')
+  const handleAddSchedule = async (sched: TrainingSchedule) => {
     setSchedules((prev) => [...prev, sched]);
+    if (isSupabaseConfigured()) {
+      await saveJadwalLatihanToSupabase(sched);
+    }
     logAction('TAMBAH_JADWAL', 'Master Jadwal', `Menambahkan jadwal latihan ${sched.trainingCategory} - ${sched.day}`);
   };
-  const handleUpdateSchedule = (sched: TrainingSchedule) => {
+  const handleUpdateSchedule = async (sched: TrainingSchedule) => {
     setSchedules((prev) => prev.map((s) => (s.id === sched.id ? sched : s)));
+    if (isSupabaseConfigured()) {
+      await saveJadwalLatihanToSupabase(sched);
+    }
   };
-  const handleDeleteSchedule = (id: string) => {
+  const handleDeleteSchedule = async (id: string) => {
     setSchedules((prev) => prev.filter((s) => s.id !== id));
+    if (isSupabaseConfigured()) {
+      await deleteJadwalLatihanFromSupabase(id);
+    }
   };
 
   // Inventory & Kantin POS Handlers
@@ -391,22 +467,24 @@ export default function App() {
     );
   };
 
-  // Monthly Dues & Automatic Reward Logic
-  const handlePayDue = (
+  // Monthly Dues & Automatic Reward Logic (Tersinkronisasi Supabase 'iuran_bulanan')
+  const handlePayDue = async (
     dueId: string,
     paymentMethod: 'Cash' | 'Transfer Bank' | 'QRIS',
     notes?: string
   ) => {
+    let updatedRecord: MonthlyDues | undefined;
     setMonthlyDues((prev) =>
       prev.map((d) => {
         if (d.id === dueId) {
-          return {
+          updatedRecord = {
             ...d,
             status: 'Sudah Bayar',
             paymentMethod,
             paymentDate: new Date().toISOString().split('T')[0],
             notes: notes || 'Pembayaran berhasil dikonfirmasi kasir',
           };
+          return updatedRecord;
         }
         return d;
       })
@@ -414,6 +492,9 @@ export default function App() {
 
     const targetDue = monthlyDues.find((d) => d.id === dueId);
     if (targetDue) {
+      if (updatedRecord && isSupabaseConfigured()) {
+        await saveIuranBulananToSupabase(updatedRecord);
+      }
       setAthletes((prev) =>
         prev.map((a) => (a.name === targetDue.athleteName ? { ...a, duesStatus: 'Sudah Bayar' } : a))
       );
@@ -422,16 +503,18 @@ export default function App() {
     }
   };
 
-  const handleApplyRewardFree = (dueId: string, tournamentTitle: string) => {
+  const handleApplyRewardFree = async (dueId: string, tournamentTitle: string) => {
+    let updatedRecord: MonthlyDues | undefined;
     setMonthlyDues((prev) =>
       prev.map((d) => {
         if (d.id === dueId) {
-          return {
+          updatedRecord = {
             ...d,
             status: 'Gratis / Reward Juara',
             notes: `Reward Bebas Iuran atas Juara Turnamen ${tournamentTitle}`,
             paymentDate: new Date().toISOString().split('T')[0],
           };
+          return updatedRecord;
         }
         return d;
       })
@@ -439,6 +522,9 @@ export default function App() {
 
     const targetDue = monthlyDues.find((d) => d.id === dueId);
     if (targetDue) {
+      if (updatedRecord && isSupabaseConfigured()) {
+        await saveIuranBulananToSupabase(updatedRecord);
+      }
       setAthletes((prev) =>
         prev.map((a) => (a.name === targetDue.athleteName ? { ...a, duesStatus: 'Gratis / Reward Juara' } : a))
       );
@@ -447,15 +533,134 @@ export default function App() {
     }
   };
 
-  // Sewa Lapangan Multi-Gedung Handlers
-  const handleAddBuilding = (building: Building) => {
+  const handleAddDue = async (newDue: MonthlyDues) => {
+    setMonthlyDues((prev) => [newDue, ...prev]);
+    if (isSupabaseConfigured()) {
+      await saveIuranBulananToSupabase(newDue);
+    }
+    logAction('INPUT_IURAN', 'Transaksi Iuran', `Input pembayaran iuran ${newDue.athleteName} periode ${newDue.periodMonth} status: ${newDue.status}`);
+    addNotification('Data Pembayaran Tersimpan', `Tagihan/iuran ${newDue.athleteName} (${newDue.periodMonth}) berhasil dicatat.`, 'success');
+  };
+
+  const handleUpdateDue = async (updatedDue: MonthlyDues) => {
+    setMonthlyDues((prev) => prev.map((d) => (d.id === updatedDue.id ? updatedDue : d)));
+    if (isSupabaseConfigured()) {
+      await saveIuranBulananToSupabase(updatedDue);
+    }
+    if (updatedDue.status === 'Sudah Bayar') {
+      setAthletes((prev) => prev.map((a) => (a.name === updatedDue.athleteName ? { ...a, duesStatus: 'Sudah Bayar' } : a)));
+    }
+    logAction('UPDATE_IURAN', 'Transaksi Iuran', `Memperbarui data pembayaran ${updatedDue.athleteName} (${updatedDue.invoiceNumber})`);
+    addNotification('Pembayaran Diperbarui', `Data pembayaran ${updatedDue.athleteName} (${updatedDue.invoiceNumber}) berhasil disimpan.`, 'success');
+  };
+
+  const handleBulkSaveDues = async (updatedOrNewDues: MonthlyDues[], actionDescription?: string) => {
+    setMonthlyDues((prev) => {
+      const ids = new Set(updatedOrNewDues.map((d) => d.id));
+      const remaining = prev.filter((d) => !ids.has(d.id));
+      return [...updatedOrNewDues, ...remaining];
+    });
+
+    const paidAthletes = new Set(
+      updatedOrNewDues
+        .filter((d) => d.status === 'Sudah Bayar')
+        .map((d) => d.athleteName.toLowerCase())
+    );
+
+    if (paidAthletes.size > 0) {
+      setAthletes((prev) =>
+        prev.map((a) => (paidAthletes.has(a.name.toLowerCase()) ? { ...a, duesStatus: 'Sudah Bayar' } : a))
+      );
+    }
+
+    if (isSupabaseConfigured()) {
+      await bulkSaveIuranBulananToSupabase(updatedOrNewDues);
+    }
+
+    logAction(
+      'INPUT_BAYAR_KOLEKTIF',
+      'Transaksi Iuran',
+      actionDescription || `Proses pembayaran kolektif untuk ${updatedOrNewDues.length} transaksi iuran.`
+    );
+    addNotification(
+      'Pembayaran Kolektif Berhasil',
+      `${updatedOrNewDues.length} data tagihan iuran berhasil diproses dan disimpan.`,
+      'success'
+    );
+  };
+
+  const handleApplyRewardWithDuration = async (
+    athleteId: string,
+    athleteName: string,
+    category: TrainingCategory,
+    tournamentTitle: string,
+    startMonth: string,
+    durationMonths: number
+  ) => {
+    const [y, m] = startMonth.split('-').map(Number);
+    const newRecords: MonthlyDues[] = [];
+
+    for (let i = 0; i < durationMonths; i++) {
+      const d = new Date(y, m - 1 + i, 1);
+      const pMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const existing = monthlyDues.find((x) => (x.athleteId === athleteId || x.athleteName === athleteName) && x.periodMonth === pMonth);
+      const fee = category === 'Pusdiklat' ? 600000 : category === 'Regular' ? 450000 : 350000;
+
+      const record: MonthlyDues = {
+        id: existing ? existing.id : `DUE-REW-${athleteId}-${pMonth}`,
+        athleteId,
+        athleteName,
+        trainingCategory: category,
+        periodMonth: pMonth,
+        amount: fee,
+        status: 'Gratis / Reward Juara',
+        paymentMethod: 'Reward Otomatis',
+        paymentDate: new Date().toISOString().split('T')[0],
+        invoiceNumber: `REW-${pMonth.replace('-', '')}-${athleteId.slice(-4)}`,
+        notes: `Reward Juara: ${tournamentTitle} (Bulan ${i + 1} dari ${durationMonths})`,
+      };
+      newRecords.push(record);
+      if (isSupabaseConfigured()) {
+        await saveIuranBulananToSupabase(record);
+      }
+    }
+
+    setMonthlyDues((prev) => {
+      const remaining = prev.filter((d) => !newRecords.some((nr) => nr.id === d.id));
+      return [...newRecords, ...remaining];
+    });
+
+    setAthletes((prev) =>
+      prev.map((a) => (a.id === athleteId || a.name === athleteName ? { ...a, duesStatus: 'Gratis / Reward Juara' } : a))
+    );
+
+    logAction('REWARD_MASA_WAKTU', 'Transaksi Iuran', `Pemberian reward bebas iuran ${durationMonths} bulan kepada ${athleteName} atas prestasi ${tournamentTitle}`);
+    addNotification('Reward Juara Diterapkan', `${athleteName} mendapatkan bebas iuran selama ${durationMonths} bulan (${startMonth} dst).`, 'reward');
+  };
+
+  // Sewa Lapangan Multi-Gedung Handlers (Tersinkronisasi Supabase 'gedung' & 'lapangan')
+  const handleAddBuilding = async (building: Building) => {
     setBuildings((prev) => [...prev, building]);
+    if (isSupabaseConfigured()) {
+      await saveGedungToSupabase(building);
+    }
     logAction('TAMBAH_GEDUNG', 'Sewa Lapangan', `Menambahkan gedung ${building.name} dengan ${building.courts.length} lapangan`);
   };
 
-  const handleUpdateBuilding = (building: Building) => {
+  const handleUpdateBuilding = async (building: Building) => {
     setBuildings((prev) => prev.map((b) => (b.id === building.id ? building : b)));
+    if (isSupabaseConfigured()) {
+      await saveGedungToSupabase(building);
+    }
     logAction('UPDATE_GEDUNG', 'Sewa Lapangan', `Memperbarui konfigurasi tarif gedung ${building.name}`);
+  };
+
+  const handleDeleteBuilding = async (id: string) => {
+    setBuildings((prev) => prev.filter((b) => b.id !== id));
+    if (isSupabaseConfigured()) {
+      await deleteGedungFromSupabase(id);
+    }
+    logAction('HAPUS_GEDUNG', 'Sewa Lapangan', `Menghapus gedung ID ${id}`);
   };
 
   const handleAddRental = (rental: CourtRental) => {
@@ -519,12 +724,31 @@ export default function App() {
     addNotification('Undian Selesai', `${newMatches.length} partai pertandingan bagan turnamen berhasil dibuat otomatis.`, 'success');
   };
 
-  // Attendance Handlers
-  const handleAddAttendance = (record: AttendanceRecord) => {
+  // Attendance Handlers (Tersinkronisasi Supabase 'absensi')
+  const handleAddAttendance = async (record: AttendanceRecord) => {
     setAttendanceRecords((prev) => [record, ...prev]);
+    if (isSupabaseConfigured()) {
+      await saveAbsensiToSupabase(record);
+    }
     const personName = record.athleteName || record.personName || 'Peserta';
     const personRole = record.personType || 'Atlet';
     logAction('PRESENSI_LATIHAN', 'Presensi', `Presensi ${personName} (${personRole}) status: ${record.status}`);
+  };
+
+  const handleBulkAddAttendance = async (records: AttendanceRecord[]) => {
+    setAttendanceRecords((prev) => {
+      // Remove any existing records for the same persons and date, then prepend new records
+      const date = records[0]?.date;
+      const personIds = new Set(records.map((r) => r.personId));
+      const filtered = prev.filter((r) => !(r.date === date && personIds.has(r.personId)));
+      return [...records, ...filtered];
+    });
+
+    if (isSupabaseConfigured()) {
+      await bulkSaveAbsensiToSupabase(records);
+    }
+    logAction('PRESENSI_MASSAL', 'Presensi', `Presensi massal untuk ${records.length} peserta pada tanggal ${records[0]?.date}`);
+    addNotification('Presensi Massal Disimpan', `${records.length} data presensi telah dicatat.`, 'success');
   };
 
   return (
@@ -582,6 +806,9 @@ export default function App() {
                 onBulkDelete={handleBulkDeleteAthletes}
                 onAthletesLoaded={(loaded) => setAthletes(loaded)}
                 currentRole={currentRole}
+                onAddAttendance={handleAddAttendance}
+                onBulkAddAttendance={handleBulkAddAttendance}
+                attendanceRecords={attendanceRecords}
               />
             )}
 
@@ -602,6 +829,8 @@ export default function App() {
             {activeTab === 'schedules' && (
               <SchedulesTab
                 schedules={schedules}
+                coaches={coaches}
+                buildings={buildings}
                 onAddSchedule={handleAddSchedule}
                 onUpdateSchedule={handleUpdateSchedule}
                 onDeleteSchedule={handleDeleteSchedule}
@@ -614,7 +843,11 @@ export default function App() {
                 dues={monthlyDues}
                 athletes={athletes}
                 onPayDue={handlePayDue}
+                onAddDue={handleAddDue}
+                onUpdateDue={handleUpdateDue}
+                onBulkSaveDues={handleBulkSaveDues}
                 onApplyRewardFree={handleApplyRewardFree}
+                onApplyRewardWithDuration={handleApplyRewardWithDuration}
                 currentRole={currentRole}
               />
             )}
@@ -625,6 +858,7 @@ export default function App() {
                 athletes={athletes}
                 coaches={coaches}
                 onAddAttendance={handleAddAttendance}
+                onBulkAddAttendance={handleBulkAddAttendance}
                 currentRole={currentRole}
               />
             )}
@@ -672,6 +906,7 @@ export default function App() {
             rentals={courtRentals}
             onAddBuilding={handleAddBuilding}
             onUpdateBuilding={handleUpdateBuilding}
+            onDeleteBuilding={handleDeleteBuilding}
             onAddRental={handleAddRental}
             onUpdateRental={handleUpdateRental}
             onDeleteRental={handleDeleteRental}

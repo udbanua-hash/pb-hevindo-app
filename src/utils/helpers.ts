@@ -59,22 +59,70 @@ export function calculatePBSICategory(birthDateStr: string, referenceYear = new 
   return { age, category };
 }
 
+export interface MonthlyFeeConfig {
+  Pembibitan: number;
+  Regular: number;
+  Pusdiklat: number;
+}
+
+const DEFAULT_MONTHLY_FEES: MonthlyFeeConfig = {
+  Pembibitan: 350000,
+  Regular: 450000,
+  Pusdiklat: 600000,
+};
+
+const FEE_STORAGE_KEY = 'hevindo_monthly_fee_settings';
+
+/**
+ * Retrieve all monthly fee settings from localStorage or defaults
+ */
+export function getAllMonthlyFeeSettings(): MonthlyFeeConfig {
+  try {
+    const stored = localStorage.getItem(FEE_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return {
+        Pembibitan: Number(parsed.Pembibitan) || DEFAULT_MONTHLY_FEES.Pembibitan,
+        Regular: Number(parsed.Regular) || DEFAULT_MONTHLY_FEES.Regular,
+        Pusdiklat: Number(parsed.Pusdiklat) || DEFAULT_MONTHLY_FEES.Pusdiklat,
+      };
+    }
+  } catch (e) {
+    console.error('Failed to parse stored monthly fees', e);
+  }
+  return { ...DEFAULT_MONTHLY_FEES };
+}
+
+/**
+ * Save new monthly fee settings to localStorage
+ */
+export function saveMonthlyFeeSettings(fees: MonthlyFeeConfig): void {
+  try {
+    localStorage.setItem(FEE_STORAGE_KEY, JSON.stringify(fees));
+    // Dispatch custom event so listeners can reactively update
+    window.dispatchEvent(new CustomEvent('monthly_fees_updated', { detail: fees }));
+  } catch (e) {
+    console.error('Failed to save monthly fees', e);
+  }
+}
+
 /**
  * Business Logic HEVINDO: Monthly fee per category
- * Pembibitan: Rp 350.000
- * Regular: Rp 450.000
- * Pusdiklat: Rp 600.000
+ * Pembibitan: Rp 350.000 (default)
+ * Regular: Rp 450.000 (default)
+ * Pusdiklat: Rp 600.000 (default)
  */
 export function getStandardMonthlyFee(category: TrainingCategory): number {
+  const settings = getAllMonthlyFeeSettings();
   switch (category) {
     case 'Pembibitan':
-      return 350000;
+      return settings.Pembibitan;
     case 'Regular':
-      return 450000;
+      return settings.Regular;
     case 'Pusdiklat':
-      return 600000;
+      return settings.Pusdiklat;
     default:
-      return 400000;
+      return settings.Regular || 450000;
   }
 }
 
